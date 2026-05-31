@@ -137,3 +137,8 @@ docker compose up -d
 ```
 
 The backend connects to a PostgreSQL database via the `DATABASE_URL` in `../EMR/.env`.
+
+## TODO
+
+- [ ] **Internationalization (i18n)** — add multi-language support, starting with English and Kannada (ಕನ್ನಡ).
+- [ ] **Unit test cases** — add a test suite (e.g. Vitest + React Testing Library) covering the API layer, hooks, and key page flows.
