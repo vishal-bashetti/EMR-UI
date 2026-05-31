@@ -21,6 +21,4 @@ export const updateAppointmentStatus = (id, status) =>
 
 export const deleteAppointment = (id) => api.delete(`/appointments/${id}`).then((r) => r.data)
 
-export const getAppointmentStatuses = () => api.get('/appointments/statuses').then((r) => r.data)
-
 export const getAppointmentTypes = () => api.get('/appointments/types').then((r) => r.data)

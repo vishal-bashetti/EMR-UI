@@ -3,9 +3,6 @@ import {
   getAppointments, getAppointment, createAppointment, updateAppointment, updateAppointmentStatus, deleteAppointment, getAppointmentStatuses, getAppointmentTypes,
 } from '../api/appointments'
 
-export const useAppointmentStatuses = () =>
-  useQuery({ queryKey: ['appointmentStatuses'], queryFn: getAppointmentStatuses })
-
 export const useCreateAppointmentStatus = () => {
   const qc = useQueryClient()
   return useMutation({
