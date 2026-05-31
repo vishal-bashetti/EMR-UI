@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMe } from '../hooks/useUsers'
 import { usePatients } from '../hooks/usePatients'
 import { useAppointments } from '../hooks/useAppointments'
@@ -56,6 +57,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function DashboardPage() {
+  const { t } = useTranslation()
   const { data: me } = useMe()
   const { data: patients } = usePatients()
   const { data: appointments } = useAppointments()
@@ -67,9 +69,9 @@ export default function DashboardPage() {
 
   const greeting = () => {
     const h = new Date().getHours()
-    if (h < 12) return 'Good morning'
-    if (h < 17) return 'Good afternoon'
-    return 'Good evening'
+    if (h < 12) return t('dashboard.greetingMorning')
+    if (h < 17) return t('dashboard.greetingAfternoon')
+    return t('dashboard.greetingEvening')
   }
 
   return (
@@ -81,9 +83,9 @@ export default function DashboardPage() {
             {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
           <h1 className="text-2xl font-bold text-slate-900">
-            {greeting()}, {me?.username ?? '…'} 👋
+            {t('dashboard.greetingLine', { greeting: greeting(), name: me?.username ?? '…' })}
           </h1>
-          <p className="text-slate-500 text-sm mt-1">Here's what's happening at your clinic today.</p>
+          <p className="text-slate-500 text-sm mt-1">{t('dashboard.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-4 h-4 text-slate-400"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -94,30 +96,30 @@ export default function DashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard
-          label="Total Patients"
+          label={t('dashboard.totalPatients')}
           value={patients?.length}
-          sub="Active records"
+          sub={t('dashboard.activeRecords')}
           accent="blue"
           icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}
         />
         <StatCard
-          label="Today's Appointments"
+          label={t('dashboard.todaysAppointments')}
           value={todayAppts.length}
           sub={`${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`}
           accent="green"
           icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
         />
         <StatCard
-          label="Scheduled"
+          label={t('dashboard.scheduled')}
           value={scheduled.length}
-          sub="Upcoming visits"
+          sub={t('dashboard.upcomingVisits')}
           accent="violet"
           icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>}
         />
         <StatCard
-          label="Completed"
+          label={t('dashboard.completed')}
           value={completed.length}
-          sub="All time"
+          sub={t('dashboard.allTime')}
           accent="amber"
           icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5"><polyline points="20 6 9 17 4 12"/></svg>}
         />
@@ -127,11 +129,11 @@ export default function DashboardPage() {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Recent Appointments</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Latest scheduled & completed visits</p>
+            <h2 className="text-base font-semibold text-slate-900">{t('dashboard.recentAppointments')}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{t('dashboard.recentSubtitle')}</p>
           </div>
           <span className="text-xs text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full font-medium">
-            {appointments?.length ?? 0} total
+            {t('dashboard.totalCount', { count: appointments?.length ?? 0 })}
           </span>
         </div>
 
@@ -140,8 +142,8 @@ export default function DashboardPage() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-10 h-10 mb-3 opacity-40">
               <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
             </svg>
-            <p className="text-sm font-medium">No appointments yet</p>
-            <p className="text-xs mt-1">Schedule your first appointment to get started.</p>
+            <p className="text-sm font-medium">{t('dashboard.noAppointments')}</p>
+            <p className="text-xs mt-1">{t('dashboard.noAppointmentsSub')}</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
@@ -153,11 +155,11 @@ export default function DashboardPage() {
                   <Avatar name={patientName || '?'} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-slate-800 truncate">
-                      {patientName || 'Unknown patient'}
+                      {patientName || t('dashboard.unknownPatient')}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                      Dr. {appt.doctor?.username}
+                      {t('dashboard.doctorPrefix', { name: appt.doctor?.username ?? '' })}
                     </p>
                   </div>
                   <div className="text-right shrink-0">

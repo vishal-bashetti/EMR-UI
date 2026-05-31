@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { usePatient } from '../hooks/usePatients'
 import { useVisitHistory } from '../hooks/useVisits'
 import { useLabResults, useUpdateLabResult } from '../hooks/useLabResults'
@@ -40,6 +41,7 @@ function LabResultUpdateModal({
   onClose: () => void
   onSave: (form: LabResultInput) => void
 }) {
+  const { t } = useTranslation()
   const [form, setForm] = useState<LabResultInput>({
     test_name: lab.test_name,
     result_value: lab.result_value || '',
@@ -59,7 +61,7 @@ function LabResultUpdateModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Update Lab Result</h2>
+            <h2 className="text-base font-bold text-slate-900">{t('patientDetail.updateLabResult')}</h2>
             <p className="text-xs text-slate-400 mt-0.5">{lab.test_name}</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
@@ -69,7 +71,7 @@ function LabResultUpdateModal({
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Result Value</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('patientDetail.resultValue')}</label>
               <input
                 className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 value={form.result_value}
@@ -78,7 +80,7 @@ function LabResultUpdateModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Unit</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('patientDetail.unit')}</label>
               <input
                 className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 value={form.unit}
@@ -88,7 +90,7 @@ function LabResultUpdateModal({
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reference Range</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('patientDetail.referenceRange')}</label>
             <input
               className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               value={form.reference_range}
@@ -97,35 +99,35 @@ function LabResultUpdateModal({
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('settings.colStatus')}</label>
             <select
               className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               value={form.status}
               onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
             >
-              <option>Pending</option>
-              <option>Completed</option>
-              <option>Cancelled</option>
+              <option value="Pending">{t('status.pending')}</option>
+              <option value="Completed">{t('status.completed')}</option>
+              <option value="Cancelled">{t('status.cancelled')}</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notes</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('patientDetail.notes')}</label>
             <textarea
               className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none min-h-[60px]"
               value={form.notes}
               onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              placeholder="Additional notes…"
+              placeholder={t('patientDetail.notesPlaceholder')}
             />
           </div>
           <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
             <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               onClick={() => onSave(form)}
               className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl"
             >
-              Save
+              {t('common.save')}
             </button>
           </div>
         </div>
@@ -135,6 +137,7 @@ function LabResultUpdateModal({
 }
 
 function VisitCard({ visit }: { visit: VisitResponse }) {
+  const { t } = useTranslation()
   const { encounter, vitals, complaints, diagnoses, treatments } = visit
   const dt = new Date(encounter.encounter_date)
   return (
@@ -142,7 +145,7 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
       <div className="flex items-start justify-between mb-3">
         <div>
           <p className="text-sm font-bold text-slate-800">
-            Visit #{encounter.visit_number}
+            {t('patientDetail.visitNumber', { number: encounter.visit_number })}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
             {dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} &middot;{' '}
@@ -161,7 +164,7 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
       <div className="grid grid-cols-3 gap-3 mt-3">
         {vitals.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{Icons.heartbeat} Vitals</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{Icons.heartbeat} {t('patientDetail.vitals')}</p>
             <div className="space-y-1">
               {vitals.map((v) => (
                 <p key={v.id} className="text-xs text-slate-600">
@@ -173,7 +176,7 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
         )}
         {complaints.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Complaints</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{t('patientDetail.complaints')}</p>
             <div className="space-y-1">
               {complaints.map((c) => (
                 <p key={c.id} className="text-xs text-slate-600">{c.complaint}</p>
@@ -183,7 +186,7 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
         )}
         {diagnoses.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Diagnoses</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{t('patientDetail.diagnoses')}</p>
             <div className="space-y-1">
               {diagnoses.map((d) => (
                 <p key={d.id} className="text-xs text-slate-600">{d.diagnosis}</p>
@@ -194,7 +197,7 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
       </div>
       {treatments.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-100">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Treatments</p>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{t('patientDetail.treatments')}</p>
           <div className="flex flex-wrap gap-2">
             {treatments.map((t) => (
               <span key={t.id} className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">
@@ -206,7 +209,7 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
       )}
       {encounter.advice && (
         <div className="mt-3 pt-3 border-t border-slate-100">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Advice</p>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">{t('patientDetail.advice')}</p>
           <p className="text-xs text-slate-600">{encounter.advice}</p>
         </div>
       )}
@@ -214,14 +217,19 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
   )
 }
 
-const TABS = ['Visit History', 'Lab Results', 'Billing'] as const
-type Tab = (typeof TABS)[number]
+const TABS = [
+  { key: 'visits', labelKey: 'patientDetail.tabVisitHistory' },
+  { key: 'labs', labelKey: 'patientDetail.tabLabResults' },
+  { key: 'billing', labelKey: 'patientDetail.tabBilling' },
+] as const
+type Tab = (typeof TABS)[number]['key']
 
 export default function PatientDetailPage() {
+  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const patientId = Number(id)
-  const [activeTab, setActiveTab] = useState<Tab>('Visit History')
+  const [activeTab, setActiveTab] = useState<Tab>('visits')
   const [editingLab, setEditingLab] = useState<LabResult | null>(null)
 
   const { data: patient, isLoading: loadingPatient } = usePatient(patientId)
@@ -243,9 +251,9 @@ export default function PatientDetailPage() {
   if (!patient) {
     return (
       <div className="p-8 text-center text-slate-400">
-        <p className="text-sm">Patient not found.</p>
+        <p className="text-sm">{t('patientDetail.notFound')}</p>
         <button onClick={() => navigate('/patients')} className="mt-3 text-blue-600 text-sm">
-          Back to Patients
+          {t('patientDetail.backToPatients')}
         </button>
       </div>
     )
@@ -266,7 +274,7 @@ export default function PatientDetailPage() {
         onClick={() => navigate('/patients')}
         className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 mb-5 transition-colors"
       >
-        {Icons.arrowLeft} Back to Patients
+        {Icons.arrowLeft} {t('patientDetail.backToPatients')}
       </button>
 
       {/* Patient Header */}
@@ -279,7 +287,7 @@ export default function PatientDetailPage() {
             <div>
               <h1 className="text-xl font-bold text-slate-900">{patientName}</h1>
               <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">
-                {age !== null && <span>{age} yrs</span>}
+                {age !== null && <span>{t('patientDetail.years', { count: age })}</span>}
                 <span>{patient.gender}</span>
                 {patient.blood_group && (
                   <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-full text-xs font-bold">
@@ -297,7 +305,7 @@ export default function PatientDetailPage() {
             to={`/visits/new?patient_id=${patientId}&doctor_id=${me?.id || ''}`}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
           >
-            {Icons.plus} New Visit
+            {Icons.plus} {t('patientDetail.newVisit')}
           </Link>
         </div>
 
@@ -310,21 +318,21 @@ export default function PatientDetailPage() {
       <div className="flex items-center gap-1 mb-5 bg-slate-100 rounded-xl p-1 w-fit">
         {TABS.map((tab) => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab
+              activeTab === tab.key
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            {tab}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>
 
       {/* Visit History Tab */}
-      {activeTab === 'Visit History' && (
+      {activeTab === 'visits' && (
         <div>
           {loadingVisits ? (
             <Spinner />
@@ -337,15 +345,15 @@ export default function PatientDetailPage() {
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center py-16 text-slate-400">
               {Icons.stethoscope}
-              <p className="text-sm font-medium mt-3">No visits recorded yet</p>
-              <p className="text-xs mt-1">Click "New Visit" to record the first visit.</p>
+              <p className="text-sm font-medium mt-3">{t('patientDetail.noVisits')}</p>
+              <p className="text-xs mt-1">{t('patientDetail.noVisitsSub')}</p>
             </div>
           )}
         </div>
       )}
 
       {/* Lab Results Tab */}
-      {activeTab === 'Lab Results' && (
+      {activeTab === 'labs' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {loadingLabs ? (
             <Spinner />
@@ -353,8 +361,8 @@ export default function PatientDetailPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Test', 'Status', 'Result', 'Unit', 'Ref Range', 'Ordered', ''].map((h) => (
-                    <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
+                  {[t('patientDetail.colTest'), t('settings.colStatus'), t('patientDetail.colResult'), t('patientDetail.colUnit'), t('patientDetail.colRefRange'), t('patientDetail.colOrdered'), ''].map((h, i) => (
+                    <th key={i} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
                       {h}
                     </th>
                   ))}
@@ -390,15 +398,15 @@ export default function PatientDetailPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400">
               {Icons.flask}
-              <p className="text-sm font-medium mt-3">No lab results</p>
-              <p className="text-xs mt-1">Lab orders from visits will appear here.</p>
+              <p className="text-sm font-medium mt-3">{t('patientDetail.noLabResults')}</p>
+              <p className="text-xs mt-1">{t('patientDetail.noLabResultsSub')}</p>
             </div>
           )}
         </div>
       )}
 
       {/* Billing Tab */}
-      {activeTab === 'Billing' && (
+      {activeTab === 'billing' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           {loadingInvoices ? (
             <Spinner />
@@ -406,8 +414,8 @@ export default function PatientDetailPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Invoice #', 'Amount', 'Status', 'Items', ''].map((h) => (
-                    <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
+                  {[t('patientDetail.colInvoice'), t('patientDetail.colAmount'), t('settings.colStatus'), t('patientDetail.colItems'), ''].map((h, i) => (
+                    <th key={i} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
                       {h}
                     </th>
                   ))}
@@ -428,14 +436,14 @@ export default function PatientDetailPage() {
                           onChange={(e) => updateInvoiceStatus.mutate({ id: inv.id, status: e.target.value })}
                           className="absolute inset-0 opacity-0 cursor-pointer w-full"
                         >
-                          <option>Pending</option>
-                          <option>Paid</option>
-                          <option>Cancelled</option>
+                          <option value="Pending">{t('status.pending')}</option>
+                          <option value="Paid">{t('status.paid')}</option>
+                          <option value="Cancelled">{t('status.cancelled')}</option>
                         </select>
                       </div>
                     </td>
                     <td className="px-5 py-4 text-xs text-slate-400">
-                      {inv.items?.length ?? 0} item{inv.items?.length !== 1 ? 's' : ''}
+                      {t('patientDetail.itemCount', { count: inv.items?.length ?? 0 })}
                     </td>
                     <td className="px-5 py-4 pr-6">
                       {inv.items.length > 0 && (
@@ -453,8 +461,8 @@ export default function PatientDetailPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400">
               {Icons.billing}
-              <p className="text-sm font-medium mt-3">No invoices</p>
-              <p className="text-xs mt-1">Invoices are auto-generated when lab tests are completed.</p>
+              <p className="text-sm font-medium mt-3">{t('patientDetail.noInvoices')}</p>
+              <p className="text-xs mt-1">{t('patientDetail.noInvoicesSub')}</p>
             </div>
           )}
         </div>

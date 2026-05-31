@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
 import { login } from '../api/auth'
 import { getMe } from '../api/users'
@@ -10,16 +11,17 @@ import { Icons } from '../components/Icons'
 interface DemoUser {
   username: string
   password: string
-  role: string
+  roleKey: string
 }
 
 const DEMO_USERS: DemoUser[] = [
-  { username: 'admin', password: 'admin123', role: 'Admin' },
-  { username: 'doctor', password: 'doctor123', role: 'Doctor' },
-  { username: 'frontdesk', password: 'frontdesk123', role: 'Front Desk' },
+  { username: 'admin', password: 'admin123', roleKey: 'login.roleAdmin' },
+  { username: 'doctor', password: 'doctor123', roleKey: 'login.roleDoctor' },
+  { username: 'frontdesk', password: 'frontdesk123', roleKey: 'login.roleFrontDesk' },
 ]
 
 export default function LoginPage() {
+  const { t } = useTranslation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -41,7 +43,7 @@ export default function LoginPage() {
       const detail = isAxiosError(err)
         ? (err.response?.data as { detail?: string } | undefined)?.detail
         : undefined
-      setError(detail || 'Incorrect username or password.')
+      setError(detail || t('login.error'))
     } finally {
       setLoading(false)
     }
@@ -69,25 +71,25 @@ export default function LoginPage() {
               {Icons.heartbeat}
             </div>
             <div>
-              <p className="text-white font-bold text-xl leading-none">MedEMR</p>
-              <p className="text-slate-400 text-xs font-medium tracking-wide mt-0.5">Clinical Suite</p>
+              <p className="text-white font-bold text-xl leading-none">{t('common.appName')}</p>
+              <p className="text-slate-400 text-xs font-medium tracking-wide mt-0.5">{t('common.tagline')}</p>
             </div>
           </div>
 
           <h2 className="text-4xl font-bold text-white leading-tight mb-4">
-            Better care starts<br />with better records.
+            {t('login.heroHeadline')}
           </h2>
           <p className="text-slate-400 text-base leading-relaxed max-w-sm">
-            A unified platform for patient records, appointments, clinical notes, and billing — built for modern healthcare teams.
+            {t('login.heroSubtitle')}
           </p>
         </div>
 
         <div className="relative grid grid-cols-2 gap-4">
           {[
-            { label: 'Patients managed', value: '10,000+' },
-            { label: 'Appointments scheduled', value: '50,000+' },
-            { label: 'Clinical records', value: '200,000+' },
-            { label: 'Uptime', value: '99.9%' },
+            { label: t('login.statPatients'), value: '10,000+' },
+            { label: t('login.statAppointments'), value: '50,000+' },
+            { label: t('login.statRecords'), value: '200,000+' },
+            { label: t('login.statUptime'), value: '99.9%' },
           ].map(({ label, value }) => (
             <div key={label} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
               <p className="text-2xl font-bold text-white">{value}</p>
@@ -105,34 +107,34 @@ export default function LoginPage() {
             <div className="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center text-white">
               {Icons.heartbeat}
             </div>
-            <p className="text-slate-900 font-bold text-xl">MedEMR</p>
+            <p className="text-slate-900 font-bold text-xl">{t('common.appName')}</p>
           </div>
 
-          <h1 className="text-2xl font-bold text-slate-900 mb-1">Welcome back</h1>
-          <p className="text-slate-500 text-sm mb-8">Sign in to your account to continue.</p>
+          <h1 className="text-2xl font-bold text-slate-900 mb-1">{t('login.welcomeBack')}</h1>
+          <p className="text-slate-500 text-sm mb-8">{t('login.subtitle')}</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Username</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('login.username')}</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoFocus
-                placeholder="Enter your username"
+                placeholder={t('login.usernamePlaceholder')}
                 className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow bg-white"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">{t('login.password')}</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="Enter your password"
+                placeholder={t('login.passwordPlaceholder')}
                 className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow bg-white"
               />
             </div>
@@ -157,15 +159,15 @@ export default function LoginPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
                   </svg>
-                  Signing in…
+                  {t('login.signingIn')}
                 </span>
-              ) : 'Sign in'}
+              ) : t('login.signIn')}
             </button>
           </form>
 
           {/* Demo accounts */}
           <div className="mt-8">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Demo accounts</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">{t('login.demoAccounts')}</p>
             <div className="space-y-2">
               {DEMO_USERS.map((u) => (
                 <button
@@ -175,9 +177,9 @@ export default function LoginPage() {
                 >
                   <div>
                     <span className="text-sm font-medium text-slate-700">{u.username}</span>
-                    <span className="text-xs text-slate-400 ml-2">{u.role}</span>
+                    <span className="text-xs text-slate-400 ml-2">{t(u.roleKey)}</span>
                   </div>
-                  <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">Click to fill →</span>
+                  <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">{t('login.clickToFill')}</span>
                 </button>
               ))}
             </div>

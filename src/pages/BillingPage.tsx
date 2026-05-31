@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useInvoices, useUpdateInvoiceStatus, useDeleteInvoice, useCreateInvoice } from '../hooks/useBilling'
 import { usePatients } from '../hooks/usePatients'
 import { suggestBill } from '../api/billing'
@@ -36,6 +37,7 @@ function CreateInvoiceModal({
   onClose: () => void
   onCreate: (data: InvoiceInput) => void
 }) {
+  const { t } = useTranslation()
   const [form, setForm] = useState<InvoiceFormState>(EMPTY_INVOICE)
   const [suggesting, setSuggesting] = useState(false)
   const [suggestError, setSuggestError] = useState('')
@@ -52,7 +54,7 @@ function CreateInvoiceModal({
   const loadSuggestion = async () => {
     const apptId = Number(form.appointment_id)
     if (!apptId) {
-      setSuggestError('Enter an appointment ID first.')
+      setSuggestError(t('billing.suggestErrorNoId'))
       return
     }
     setSuggesting(true)
@@ -71,7 +73,7 @@ function CreateInvoiceModal({
           : f.items,
       }))
     } catch {
-      setSuggestError('Could not load a suggestion for that appointment.')
+      setSuggestError(t('billing.suggestErrorFail'))
     } finally {
       setSuggesting(false)
     }
@@ -95,8 +97,8 @@ function CreateInvoiceModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-bold text-slate-900">Create Invoice</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Add billing items for this patient</p>
+            <h2 className="text-base font-bold text-slate-900">{t('billing.modalTitle')}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{t('billing.modalSubtitle')}</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
             {Icons.x}
@@ -105,16 +107,16 @@ function CreateInvoiceModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Patient <span className="text-red-400">*</span></label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('billing.patient')} <span className="text-red-400">*</span></label>
               <select required className={inputCls} value={form.patient_id} onChange={(e) => setForm((f) => ({ ...f, patient_id: e.target.value }))}>
-                <option value="">Select patient…</option>
+                <option value="">{t('billing.selectPatient')}</option>
                 {patients?.map((p) => (
                   <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
                 ))}
               </select>
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Appointment ID <span className="text-slate-300">(optional)</span></label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('billing.appointmentId')} <span className="text-slate-300">{t('common.optional')}</span></label>
               <div className="flex gap-2">
                 <input className={inputCls} type="number" value={form.appointment_id} onChange={(e) => setForm((f) => ({ ...f, appointment_id: e.target.value }))} placeholder="e.g. 12" />
                 <button
@@ -122,9 +124,9 @@ function CreateInvoiceModal({
                   onClick={loadSuggestion}
                   disabled={suggesting || !form.appointment_id}
                   className="shrink-0 whitespace-nowrap px-3 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 rounded-xl transition-colors"
-                  title="Auto-fill items from the appointment (consultation + completed labs)"
+                  title={t('billing.suggestTitle')}
                 >
-                  {suggesting ? 'Loading…' : 'Suggest items'}
+                  {suggesting ? t('common.loading') : t('billing.suggestItems')}
                 </button>
               </div>
               {suggestError && <p className="text-xs text-red-500 mt-1.5">{suggestError}</p>}
@@ -133,21 +135,21 @@ function CreateInvoiceModal({
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-semibold text-slate-600">Line Items</label>
+              <label className="text-xs font-semibold text-slate-600">{t('billing.lineItems')}</label>
               <button type="button" onClick={addItem} className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
-                {Icons.plus} Add item
+                {Icons.plus} {t('billing.addItem')}
               </button>
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-[1fr_60px_90px_20px] gap-2 px-1">
-                <span className="text-xs text-slate-400">Service</span>
-                <span className="text-xs text-slate-400">Qty</span>
-                <span className="text-xs text-slate-400">Unit Price</span>
+                <span className="text-xs text-slate-400">{t('billing.service')}</span>
+                <span className="text-xs text-slate-400">{t('billing.qty')}</span>
+                <span className="text-xs text-slate-400">{t('billing.unitPrice')}</span>
                 <span />
               </div>
               {form.items.map((item, i) => (
                 <div key={i} className="grid grid-cols-[1fr_60px_90px_20px] gap-2 items-center">
-                  <input className={`${smallInputCls} w-full`} value={item.service_name} onChange={(e) => updateItem(i, 'service_name', e.target.value)} placeholder="Service name" />
+                  <input className={`${smallInputCls} w-full`} value={item.service_name} onChange={(e) => updateItem(i, 'service_name', e.target.value)} placeholder={t('billing.serviceNamePlaceholder')} />
                   <input className={`${smallInputCls} w-full text-center`} type="number" min="1" value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value)} />
                   <input className={`${smallInputCls} w-full`} type="number" step="0.01" value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', e.target.value)} placeholder="0.00" />
                   {form.items.length > 1 && (
@@ -159,14 +161,14 @@ function CreateInvoiceModal({
           </div>
 
           <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
-            <span className="text-sm text-slate-500">Total</span>
+            <span className="text-sm text-slate-500">{t('common.total')}</span>
             <span className="text-lg font-bold text-slate-800">₹{totalAmount.toFixed(2)}</span>
           </div>
 
           <div className="flex justify-end gap-3 pt-1">
-            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
             <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl">
-              Create Invoice
+              {t('billing.createInvoice')}
             </button>
           </div>
         </form>
@@ -182,6 +184,7 @@ const STATUS_STYLES: Record<string, string> = {
 }
 
 function StatusBadge({ status, onChange }: { status: string; onChange: (status: string) => void }) {
+  const { t } = useTranslation()
   const cls = STATUS_STYLES[status] || 'bg-slate-100 text-slate-500'
   return (
     <div className="relative group w-fit">
@@ -193,15 +196,16 @@ function StatusBadge({ status, onChange }: { status: string; onChange: (status: 
         onChange={(e) => onChange(e.target.value)}
         className="absolute inset-0 opacity-0 cursor-pointer w-full"
       >
-        <option>Pending</option>
-        <option>Paid</option>
-        <option>Cancelled</option>
+        <option value="Pending">{t('status.pending')}</option>
+        <option value="Paid">{t('status.paid')}</option>
+        <option value="Cancelled">{t('status.cancelled')}</option>
       </select>
     </div>
   )
 }
 
 export default function BillingPage() {
+  const { t } = useTranslation()
   const [filterStatus, setFilterStatus] = useState('')
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Invoice | null>(null)
@@ -233,10 +237,10 @@ export default function BillingPage() {
   const pendingAmount = invoices?.filter((i) => i.status === 'Pending').reduce((sum, i) => sum + (i.amount ?? 0), 0) ?? 0
 
   const filterTabs: [string, string, number][] = [
-    ['', 'All', totals.all],
-    ['Pending', 'Pending', totals.Pending],
-    ['Paid', 'Paid', totals.Paid],
-    ['Cancelled', 'Cancelled', totals.Cancelled],
+    ['', t('billing.filterAll'), totals.all],
+    ['Pending', t('status.pending'), totals.Pending],
+    ['Paid', t('status.paid'), totals.Paid],
+    ['Cancelled', t('status.cancelled'), totals.Cancelled],
   ]
 
   return (
@@ -244,33 +248,33 @@ export default function BillingPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Billing</h1>
-          <p className="text-sm text-slate-400 mt-0.5">{totals.all} total invoices</p>
+          <h1 className="text-2xl font-bold text-slate-900">{t('billing.title')}</h1>
+          <p className="text-sm text-slate-400 mt-0.5">{t('billing.totalInvoices', { count: totals.all })}</p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
         >
-          {Icons.plus} Create Invoice
+          {Icons.plus} {t('billing.createInvoice')}
         </button>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-emerald-50 rounded-2xl p-5 border border-white shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Collected Revenue</p>
+          <p className="text-sm font-medium text-slate-500">{t('billing.collectedRevenue')}</p>
           <p className="text-2xl font-bold text-emerald-700 mt-1">₹{totalRevenue.toFixed(2)}</p>
-          <p className="text-xs text-slate-400 mt-1">{totals.Paid} paid invoices</p>
+          <p className="text-xs text-slate-400 mt-1">{t('billing.paidInvoices', { count: totals.Paid })}</p>
         </div>
         <div className="bg-amber-50 rounded-2xl p-5 border border-white shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Outstanding</p>
+          <p className="text-sm font-medium text-slate-500">{t('billing.outstanding')}</p>
           <p className="text-2xl font-bold text-amber-700 mt-1">₹{pendingAmount.toFixed(2)}</p>
-          <p className="text-xs text-slate-400 mt-1">{totals.Pending} pending invoices</p>
+          <p className="text-xs text-slate-400 mt-1">{t('billing.pendingInvoices', { count: totals.Pending })}</p>
         </div>
         <div className="bg-slate-50 rounded-2xl p-5 border border-white shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Cancelled</p>
+          <p className="text-sm font-medium text-slate-500">{t('billing.cancelled')}</p>
           <p className="text-2xl font-bold text-slate-600 mt-1">{totals.Cancelled}</p>
-          <p className="text-xs text-slate-400 mt-1">invoices cancelled</p>
+          <p className="text-xs text-slate-400 mt-1">{t('billing.invoicesCancelled')}</p>
         </div>
       </div>
 
@@ -309,8 +313,8 @@ export default function BillingPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Invoice #', 'Patient', 'Amount', 'Status', 'Items', ''].map((h) => (
-                  <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
+                {[t('billing.colInvoice'), t('billing.colPatient'), t('billing.colAmount'), t('settings.colStatus'), t('billing.colItems'), ''].map((h, i) => (
+                  <th key={i} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
                     {h}
                   </th>
                 ))}
@@ -322,7 +326,7 @@ export default function BillingPage() {
                   key={inv.id}
                   inv={inv}
                   expanded={expandedId === inv.id}
-                  patientName={patientMap[inv.patient_id] || `Patient #${inv.patient_id}`}
+                  patientName={patientMap[inv.patient_id] || t('billing.patientNum', { id: inv.patient_id })}
                   onToggle={() => setExpandedId(expandedId === inv.id ? null : inv.id)}
                   onStatusChange={(status) => updateStatus.mutate({ id: inv.id, status })}
                   onDelete={() => setConfirmDelete(inv)}
@@ -333,8 +337,8 @@ export default function BillingPage() {
                   <td colSpan={6} className="py-20 text-center">
                     <div className="flex flex-col items-center text-slate-400">
                       {Icons.billing}
-                      <p className="text-sm font-medium mt-3">No invoices</p>
-                      <p className="text-xs mt-1">Invoices appear here when lab tests are completed.</p>
+                      <p className="text-sm font-medium mt-3">{t('billing.noInvoices')}</p>
+                      <p className="text-xs mt-1">{t('billing.noInvoicesSub')}</p>
                     </div>
                   </td>
                 </tr>
@@ -363,24 +367,24 @@ export default function BillingPage() {
             <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mb-4 text-red-500">
               {Icons.trash}
             </div>
-            <h3 className="text-base font-bold text-slate-900">Delete Invoice?</h3>
+            <h3 className="text-base font-bold text-slate-900">{t('billing.deleteTitle')}</h3>
             <p className="text-sm text-slate-500 mt-1 mb-5">
-              This will permanently delete invoice{' '}
+              {t('billing.deleteConfirmPre')}{' '}
               <span className="font-medium text-slate-700">#{confirmDelete.id}</span>{' '}
-              and all its line items.
+              {t('billing.deleteConfirmPost')}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setConfirmDelete(null)}
                 className="flex-1 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => { remove.mutate(confirmDelete.id); setConfirmDelete(null) }}
                 className="flex-1 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors"
               >
-                Delete
+                {t('common.delete')}
               </button>
             </div>
           </div>
@@ -405,6 +409,7 @@ function FragmentRow({
   onStatusChange: (status: string) => void
   onDelete: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <>
       <tr
@@ -418,13 +423,13 @@ function FragmentRow({
           <StatusBadge status={inv.status} onChange={onStatusChange} />
         </td>
         <td className="px-5 py-4 text-slate-400 text-xs">
-          {inv.items.length} item{inv.items.length !== 1 ? 's' : ''}
+          {t('billing.itemCount', { count: inv.items.length })}
         </td>
         <td className="px-5 py-4 pr-6 text-right" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={onDelete}
             className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-            title="Delete invoice"
+            title={t('billing.deleteInvoice')}
           >
             {Icons.trash}
           </button>
