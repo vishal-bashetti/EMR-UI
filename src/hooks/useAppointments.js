@@ -1,7 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getAppointments, createAppointment, updateAppointment, updateAppointmentStatus, deleteAppointment,
+  getAppointmentStatuses, createAppointmentStatus,
 } from '../api/appointments'
+
+export const useAppointmentStatuses = () =>
+  useQuery({ queryKey: ['appointmentStatuses'], queryFn: getAppointmentStatuses })
+
+export const useCreateAppointmentStatus = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: createAppointmentStatus,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['appointmentStatuses'] }),
+  })
+}
 
 export const useAppointments = (params) =>
   useQuery({ queryKey: ['appointments', params], queryFn: () => getAppointments(params) })

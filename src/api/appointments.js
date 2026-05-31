@@ -1,5 +1,11 @@
 import api from './axios'
 
+export const getAppointmentStatuses = () =>
+  api.get('/appointments/statuses').then((r) => r.data)
+
+export const createAppointmentStatus = (data) =>
+  api.post('/appointments/statuses', data).then((r) => r.data)
+
 export const getAppointments = (params) =>
   api.get('/appointments/', { params }).then((r) => r.data)
 

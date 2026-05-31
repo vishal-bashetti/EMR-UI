@@ -1,0 +1,28 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getDrugs, createDrug, updateDrug } from '../api/drugs'
+
+export const useDrugs = (search) =>
+  useQuery({
+    queryKey: ['drugs', search],
+    queryFn: () => getDrugs(search),
+    enabled: !!(search && search.length >= 1),
+  })
+
+export const useAllDrugs = () =>
+  useQuery({ queryKey: ['drugs', 'all'], queryFn: () => getDrugs(undefined, 200) })
+
+export const useCreateDrug = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: createDrug,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['drugs'] }),
+  })
+}
+
+export const useUpdateDrug = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }) => updateDrug(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['drugs'] }),
+  })
+}
