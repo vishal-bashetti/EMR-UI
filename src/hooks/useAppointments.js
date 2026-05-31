@@ -1,11 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  getAppointments, createAppointment, updateAppointment, updateAppointmentStatus, deleteAppointment,
-  getAppointmentStatuses, createAppointmentStatus,
+  getAppointments, getAppointment, createAppointment, updateAppointment, updateAppointmentStatus, deleteAppointment, getAppointmentStatuses, getAppointmentTypes,
 } from '../api/appointments'
-
-export const useAppointmentStatuses = () =>
-  useQuery({ queryKey: ['appointmentStatuses'], queryFn: getAppointmentStatuses })
 
 export const useCreateAppointmentStatus = () => {
   const qc = useQueryClient()
@@ -17,6 +13,13 @@ export const useCreateAppointmentStatus = () => {
 
 export const useAppointments = (params) =>
   useQuery({ queryKey: ['appointments', params], queryFn: () => getAppointments(params) })
+
+export const useAppointment = (id) =>
+  useQuery({
+    queryKey: ['appointment', id],
+    queryFn: () => getAppointment(id),
+    enabled: !!id,
+  })
 
 export const useCreateAppointment = () => {
   const qc = useQueryClient()
@@ -30,7 +33,10 @@ export const useUpdateAppointment = () => {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }) => updateAppointment(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['appointments'] }),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ['appointments'] })
+      qc.invalidateQueries({ queryKey: ['appointment', variables.id] })
+    }
   })
 }
 
@@ -49,3 +55,9 @@ export const useDeleteAppointment = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['appointments'] }),
   })
 }
+
+export const useAppointmentStatuses = () =>
+  useQuery({ queryKey: ['appointmentStatuses'], queryFn: getAppointmentStatuses })
+
+export const useAppointmentTypes = () =>
+  useQuery({ queryKey: ['appointmentTypes'], queryFn: getAppointmentTypes })
