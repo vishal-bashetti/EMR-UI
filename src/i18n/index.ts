@@ -2,11 +2,9 @@ import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import en from './locales/en.json'
-// Kannada (ಕನ್ನಡ) is scaffolded for the roadmap. To enable it:
-//   1. fill in src/i18n/locales/kn.json,
-//   2. import it here and add `kn: { translation: kn }` to `resources`,
-//   3. add `{ code: 'kn', label: 'ಕನ್ನಡ' }` to SUPPORTED_LANGUAGES below.
-// Missing keys automatically fall back to English.
+import kn from './locales/kn.json'
+// English (en.json) and Kannada (kn.json) are both fully translated and kept in sync.
+// Any keys missing from a locale automatically fall back to English.
 
 export interface Language {
   code: string
@@ -15,6 +13,7 @@ export interface Language {
 
 export const SUPPORTED_LANGUAGES: Language[] = [
   { code: 'en', label: 'English' },
+  { code: 'kn', label: 'ಕನ್ನಡ' },
 ]
 
 i18n
@@ -23,6 +22,7 @@ i18n
   .init({
     resources: {
       en: { translation: en },
+      kn: { translation: kn },
     },
     fallbackLng: 'en',
     supportedLngs: SUPPORTED_LANGUAGES.map((l) => l.code),

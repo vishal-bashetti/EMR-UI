@@ -381,18 +381,18 @@ export default function NewVisitPage() {
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.dueDate')}</span>
                 <span />
               </div>
-              {treatments.map((t, i) => (
+              {treatments.map((tr, i) => (
                 <div key={i} className="grid grid-cols-[1fr_160px_24px] gap-2 items-center">
                   <input
                     className={`${smallInputCls} w-full`}
-                    value={t.treatment}
+                    value={tr.treatment}
                     onChange={(e) => updateTreatment(i, 'treatment', e.target.value)}
                     placeholder={t('visit.treatmentPlaceholder')}
                   />
                   <input
                     className={`${smallInputCls} w-full`}
                     type="date"
-                    value={t.due_date}
+                    value={tr.due_date}
                     onChange={(e) => updateTreatment(i, 'due_date', e.target.value)}
                   />
                   <button type="button" onClick={() => removeTreatment(i)} className="text-slate-300 hover:text-red-500 transition-colors">
@@ -483,8 +483,8 @@ export default function NewVisitPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    {['Drug', 'Morning', 'Afternoon', 'Evening', 'Night', 'When', 'Details', ''].map((h) => (
-                      <th key={h} className="text-left py-2 px-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
+                    {[t('visit.colDrug'), t('visit.colMorning'), t('visit.colAfternoon'), t('visit.colEvening'), t('visit.colNight'), t('visit.colWhen'), t('visit.colDetails'), ''].map((h, i) => (
+                      <th key={i} className="text-left py-2 px-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
                     ))}
@@ -510,12 +510,12 @@ export default function NewVisitPage() {
                           value={p.when}
                           onChange={(e) => updatePrescription(i, 'when', e.target.value)}
                         >
-                          <option value="">—</option>
-                          <option>Before food</option>
-                          <option>After food</option>
-                          <option>With food</option>
-                          <option>At bedtime</option>
-                          <option>SOS</option>
+                          <option value="">{t('common.dash')}</option>
+                          <option value="Before food">{t('visit.whenBeforeFood')}</option>
+                          <option value="After food">{t('visit.whenAfterFood')}</option>
+                          <option value="With food">{t('visit.whenWithFood')}</option>
+                          <option value="At bedtime">{t('visit.whenAtBedtime')}</option>
+                          <option value="SOS">{t('visit.whenSos')}</option>
                         </select>
                       </td>
                       <td className="py-2 px-1">
@@ -523,7 +523,7 @@ export default function NewVisitPage() {
                           className="w-36 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                           value={p.details}
                           onChange={(e) => updatePrescription(i, 'details', e.target.value)}
-                          placeholder="Additional details…"
+                          placeholder={t('visit.detailsPlaceholder')}
                         />
                       </td>
                       <td className="py-2 px-1">
@@ -542,7 +542,7 @@ export default function NewVisitPage() {
             </div>
           ) : (
             <p className="text-sm text-slate-400 text-center py-3">
-              Search and select drugs above to add to the prescription.
+              {t('visit.prescriptionsHint')}
             </p>
           )}
         </SectionCard>
@@ -550,7 +550,7 @@ export default function NewVisitPage() {
         {/* Error */}
         {createVisit.isError && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
-            Failed to save visit. Please check your inputs and try again.
+            {t('visit.failedSave')}
           </div>
         )}
 
@@ -561,14 +561,14 @@ export default function NewVisitPage() {
             onClick={() => navigate(-1)}
             className="px-6 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
             disabled={createVisit.isPending}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
           >
-            {createVisit.isPending ? 'Saving…' : 'Save Visit'}
+            {createVisit.isPending ? t('common.saving') : t('visit.saveVisit')}
           </button>
         </div>
       </form>
