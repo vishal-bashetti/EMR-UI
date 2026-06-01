@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getVitalConfigs, getLastVisit, getVisitHistory, createVisit } from '../api/visits'
+import { getVitalConfigs, getLastVisit, getVisitHistory, createVisit, updateVisit } from '../api/visits'
+import type { VisitPayload } from '../types'
 
 export const useVitalConfigs = () => useQuery({ queryKey: ['vitalConfigs'], queryFn: getVitalConfigs })
 
@@ -25,6 +26,19 @@ export const useCreateVisit = () => {
       qc.invalidateQueries({ queryKey: ['visitHistory', vars.patient_id] })
       qc.invalidateQueries({ queryKey: ['lastVisit', vars.patient_id] })
       qc.invalidateQueries({ queryKey: ['labResults', vars.patient_id] })
+      qc.invalidateQueries({ queryKey: ['appointments'] })
+    },
+  })
+}
+
+export const useUpdateVisit = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: VisitPayload }) => updateVisit(id, data),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['visitHistory', vars.data.patient_id] })
+      qc.invalidateQueries({ queryKey: ['lastVisit', vars.data.patient_id] })
+      qc.invalidateQueries({ queryKey: ['labResults', vars.data.patient_id] })
       qc.invalidateQueries({ queryKey: ['appointments'] })
     },
   })

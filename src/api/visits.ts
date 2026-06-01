@@ -15,3 +15,6 @@ export const getVisitHistory = (patientId: number, limit = 6): Promise<VisitResp
 
 export const createVisit = (data: VisitPayload): Promise<Encounter> =>
   api.post<Encounter>('/visits/', data).then((r) => r.data)
+
+export const updateVisit = (id: number, data: VisitPayload): Promise<Encounter> =>
+  api.put<Encounter>(`/visits/${id}`, data).then((r) => r.data)

@@ -4,9 +4,10 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
 import { usePatient } from '../hooks/usePatients'
-import { useVitalConfigs, useCreateVisit } from '../hooks/useVisits'
-import { useLabCatalog } from '../hooks/useLabResults'
-import { useDrugs } from '../hooks/useDrugs'
+import { useVitalConfigs, useCreateVisit, useUpdateVisit } from '../hooks/useVisits'
+import { useAppointmentStatuses } from '../hooks/useAppointments'
+import { useLabCatalog, useLatestLabResults } from '../hooks/useLabResults'
+import { useDrugs, useCreateDrug } from '../hooks/useDrugs'
 import { getLastVisit } from '../api/visits'
 import { Icons } from '../components/Icons'
 import type { Drug, PrescriptionInput, VisitPayload } from '../types'
@@ -22,10 +23,14 @@ type CarryStatus = 'loading' | 'loaded' | 'none' | 'error' | null
 
 function SectionCard({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-        {icon && <span className="text-slate-400">{icon}</span>}
-        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">{title}</h3>
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-slate-300">
+      <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-blue-50/60 via-slate-50/30 to-white flex items-center gap-3">
+        {icon && (
+          <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-white shadow-sm border border-slate-100/80 text-blue-600">
+            {icon}
+          </div>
+        )}
+        <h3 className="text-[13px] font-extrabold text-slate-800 uppercase tracking-widest">{title}</h3>
       </div>
       <div className="p-6">{children}</div>
     </div>
@@ -55,9 +60,14 @@ export default function NewVisitPage() {
 
   const { data: patient } = usePatient(patientId)
   const { data: vitalConfigs } = useVitalConfigs()
-  const { data: labCatalog } = useLabCatalog()
+  const { data: statuses } = useAppointmentStatuses()
+  const { data: lastLabReports } = useLatestLabResults(patientId)
   const createVisit = useCreateVisit()
+  const updateVisit = useUpdateVisit()
+  const createDrug = useCreateDrug()
 
+  const [editingEncounterId, setEditingEncounterId] = useState<number | null>(null)
+  const [status, setStatus] = useState<string>('Open')
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
   const [quickNotes, setQuickNotes] = useState('')
@@ -66,7 +76,7 @@ export default function NewVisitPage() {
   const [complaints, setComplaints] = useState<ComplaintRow[]>([])
   const [diagnoses, setDiagnoses] = useState<DiagnosisRow[]>([])
   const [treatments, setTreatments] = useState<TreatmentRow[]>([])
-  const [selectedLabs, setSelectedLabs] = useState<number[]>([])
+  const [selectedLabItems, setSelectedLabItems] = useState<any[]>([])
   const [prescriptions, setPrescriptions] = useState<PrescriptionInput[]>([])
 
   const [carryStatus, setCarryStatus] = useState<CarryStatus>(null)
@@ -76,6 +86,14 @@ export default function NewVisitPage() {
     try {
       const data = await getLastVisit(patientId)
       const enc = data.encounter
+      
+      if (enc.status !== 'Completed') {
+        setEditingEncounterId(enc.id)
+      } else {
+        setEditingEncounterId(null)
+      }
+
+      setStatus(enc.status || 'Open')
       setReason(enc.reason || '')
       setNotes(enc.notes || '')
       setQuickNotes(enc.quick_notes || '')
@@ -86,21 +104,79 @@ export default function NewVisitPage() {
       setComplaints(data.complaints.map((c) => ({ complaint: c.complaint, from_date: c.from_date || '', duration: c.duration || '' })))
       setDiagnoses(data.diagnoses.map((d) => ({ diagnosis: d.diagnosis, date: d.date || '' })))
       setTreatments(data.treatments.map((t) => ({ treatment: t.treatment, due_date: t.due_date || '' })))
+      setPrescriptions(data.prescriptions || [])
       setCarryStatus('loaded')
     } catch (e) {
       setCarryStatus(isAxiosError(e) && e.response?.status === 404 ? 'none' : 'error')
     }
   }
 
+  useEffect(() => {
+    if (searchParams.get('edit') === 'true') {
+      handleCarryForward()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [drugSearch, setDrugSearch] = useState('')
   const [showDrugDropdown, setShowDrugDropdown] = useState(false)
   const drugSearchRef = useRef<HTMLDivElement>(null)
   const { data: drugResults } = useDrugs(drugSearch)
 
+  const [labSearch, setLabSearch] = useState('')
+  const [showLabDropdown, setShowLabDropdown] = useState(false)
+  const [showLastLabReport, setShowLastLabReport] = useState(false)
+  const labSearchRef = useRef<HTMLDivElement>(null)
+  const { data: labCatalog } = useLabCatalog(labSearch)
+
+  const lastComputedVitals = useRef<Record<number, string>>({});
+
+  // Compute vitals with formulas
+  useEffect(() => {
+    if (!vitalConfigs) return;
+    
+    let updated = false;
+    const newVitals = { ...vitals };
+    
+    vitalConfigs.forEach(vc => {
+      if (vc.data_type === 'computed' && vc.formula) {
+        let expression = vc.formula;
+        // Replace variable names with actual values
+        vitalConfigs.forEach(innerVc => {
+           if (innerVc.data_type !== 'computed') {
+              const val = parseFloat(newVitals[innerVc.id] || '0') || 0;
+              const regex = new RegExp(innerVc.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+              expression = expression.replace(regex, val.toString());
+           }
+        });
+        
+        try {
+          const result = new Function(`return ${expression}`)();
+          const computedValue = (isNaN(result) || !isFinite(result) || result === 0) ? '' : result.toFixed(2);
+          
+          if (computedValue !== lastComputedVitals.current[vc.id]) {
+            newVitals[vc.id] = computedValue;
+            lastComputedVitals.current[vc.id] = computedValue;
+            updated = true;
+          }
+        } catch {
+          // ignore error, keep existing value
+        }
+      }
+    });
+
+    if (updated) {
+      setVitals(newVitals);
+    }
+  }, [vitals, vitalConfigs]);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (drugSearchRef.current && !drugSearchRef.current.contains(e.target as Node)) {
         setShowDrugDropdown(false)
+      }
+      if (labSearchRef.current && !labSearchRef.current.contains(e.target as Node)) {
+        setShowLabDropdown(false)
       }
     }
     document.addEventListener('mousedown', handler)
@@ -122,16 +198,42 @@ export default function NewVisitPage() {
   const updateTreatment = (i: number, field: keyof TreatmentRow, val: string) =>
     setTreatments((t) => t.map((item, j) => (j === i ? { ...item, [field]: val } : item)))
 
-  const toggleLab = (id: number) =>
-    setSelectedLabs((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]))
+  const addLabItem = (item: any) => {
+    if (!selectedLabItems.find((l) => l.id === item.id)) {
+      setSelectedLabItems((prev) => [...prev, item])
+    }
+    setLabSearch('')
+    setShowLabDropdown(false)
+  }
+  const removeLabItem = (id: number) => setSelectedLabItems((l) => l.filter((x) => x.id !== id))
 
-  const addDrug = (drug: Drug) => {
+  const addDrug = (drugName: string) => {
     setPrescriptions((p) => [
       ...p,
-      { molecule: drug.name, morning: '', afternoon: '', evening: '', night: '', when: '', details: '' },
+      { name: drugName, morning: '', afternoon: '', evening: '', night: '', when: '', details: '' },
     ])
     setDrugSearch('')
     setShowDrugDropdown(false)
+  }
+
+  const handleCreateAndAddDrug = async (drugName: string) => {
+    try {
+      await createDrug.mutateAsync({ name: drugName, is_active: true })
+      addDrug(drugName)
+    } catch {
+      alert('Failed to create drug.')
+    }
+  }
+
+  const handleSaveDrugToCatalog = async (drugName: string) => {
+    if (window.confirm(`Do you want to save "${drugName}" to the drug catalog for future use?`)) {
+      try {
+        await createDrug.mutateAsync({ name: drugName, is_active: true })
+        alert('Saved to catalog!')
+      } catch {
+        alert('Failed to save drug to catalog.')
+      }
+    }
   }
   const removePrescription = (i: number) => setPrescriptions((p) => p.filter((_, j) => j !== i))
   const updatePrescription = (i: number, field: keyof PrescriptionInput, val: string) =>
@@ -143,6 +245,7 @@ export default function NewVisitPage() {
       patient_id: patientId,
       doctor_id: doctorId,
       appointment_id: appointmentId,
+      status: status,
       reason: reason || null,
       notes: notes || null,
       quick_notes: quickNotes || null,
@@ -153,11 +256,15 @@ export default function NewVisitPage() {
       complaints: complaints.filter((c) => c.complaint.trim()),
       diagnoses: diagnoses.filter((d) => d.diagnosis.trim()),
       treatments: treatments.filter((t) => t.treatment.trim()),
-      lab_test_catalogs: selectedLabs,
-      prescriptions: prescriptions.filter((p) => p.molecule.trim()),
+      lab_test_catalogs: selectedLabItems.map((l) => l.id),
+      prescriptions: prescriptions.filter((p) => p.name.trim()),
     }
     try {
-      await createVisit.mutateAsync(payload)
+      if (editingEncounterId) {
+        await updateVisit.mutateAsync({ id: editingEncounterId, data: payload })
+      } else {
+        await createVisit.mutateAsync(payload)
+      }
       navigate(`/patients/${patientId}`)
     } catch {
       // error displayed inline
@@ -227,7 +334,23 @@ export default function NewVisitPage() {
         {/* Visit Overview */}
         <SectionCard title={t('visit.overview')} icon={Icons.stethoscope}>
           <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
+            <div className="col-span-1">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                Visit Status
+              </label>
+              <select
+                className={inputCls}
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                {statuses?.map((s) => (
+                  <option key={s.id} value={s.name}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="col-span-1">
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">
                 {t('visit.reason')}
               </label>
@@ -274,16 +397,17 @@ export default function NewVisitPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {vitalConfigs.map((vc) => (
                 <div key={vc.id}>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    {vc.name}
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center justify-between">
+                    <span>{vc.name}</span>
+                    {vc.data_type === 'computed' && <span className="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">Auto</span>}
                   </label>
                   <input
                     className={inputCls}
-                    type={vc.data_type === 'number' ? 'number' : 'text'}
+                    type={['float', 'integer', 'number'].includes(vc.data_type) ? 'number' : 'text'}
                     value={vitals[vc.id] || ''}
                     onChange={(e) => setVitals((v) => ({ ...v, [vc.id]: e.target.value }))}
                     placeholder={vc.name}
-                    step={vc.data_type === 'number' ? 'any' : undefined}
+                    step={vc.data_type === 'float' ? 'any' : undefined}
                   />
                 </div>
               ))}
@@ -407,35 +531,85 @@ export default function NewVisitPage() {
         </SectionCard>
 
         {/* Lab Orders */}
-        <SectionCard title={t('visit.labOrders')} icon={Icons.flask}>
-          {labCatalog && labCatalog.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {labCatalog.map((item) => (
-                <label
-                  key={item.id}
-                  className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                    selectedLabs.includes(item.id)
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedLabs.includes(item.id)}
-                    onChange={() => toggleLab(item.id)}
-                    className="w-4 h-4 text-blue-600 rounded accent-blue-600"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{item.name}</p>
-                    {item.price > 0 && (
-                      <p className="text-xs text-slate-400">₹{item.price.toFixed(2)}</p>
-                    )}
-                  </div>
-                </label>
+        <SectionCard title="Lab Orders" icon={Icons.flask}>
+          {lastLabReports && lastLabReports.length > 0 && (
+            <div className="mb-4 bg-emerald-50 rounded-xl border border-emerald-100 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowLastLabReport(!showLastLabReport)}
+                className="w-full px-4 py-3 flex items-center justify-between text-sm font-semibold text-emerald-800 hover:bg-emerald-100/50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="bg-emerald-200 text-emerald-800 rounded-full p-1">{Icons.flask}</span>
+                  Latest Lab Report ({new Date(lastLabReports[0].ordered_date).toLocaleDateString()}) - {lastLabReports.length} test{lastLabReports.length > 1 ? 's' : ''}
+                </div>
+                <span className={`transform transition-transform ${showLastLabReport ? 'rotate-180' : ''}`}>
+                  ▼
+                </span>
+              </button>
+              {showLastLabReport && (
+                <div className="p-4 border-t border-emerald-100 bg-white m-2 rounded-lg text-sm text-slate-700 space-y-4">
+                  {lastLabReports.map((report) => (
+                    <div key={report.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="font-semibold text-slate-900">{report.test_name}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold bg-slate-100 text-slate-700`}>
+                          {report.status}
+                        </span>
+                      </div>
+                      <p className="mb-1"><span className="font-medium">Result:</span> {report.result_value || 'Pending'} {report.unit || ''}</p>
+                      {report.reference_range && <p className="mb-1"><span className="font-medium">Reference:</span> {report.reference_range}</p>}
+                      {report.notes && <p><span className="font-medium">Notes:</span> {report.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div ref={labSearchRef} className="relative mb-4">
+            <input
+              className={inputCls}
+              value={labSearch}
+              onChange={(e) => { setLabSearch(e.target.value); setShowLabDropdown(true) }}
+              onFocus={() => labSearch.length >= 1 && setShowLabDropdown(true)}
+              placeholder="Search lab tests…"
+            />
+            {showLabDropdown && labCatalog && labCatalog.length > 0 && (
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
+                {labCatalog.map((item: any) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0"
+                    onClick={() => addLabItem(item)}
+                  >
+                    <span className="font-medium text-slate-800">{item.name}</span>
+                    {item.price > 0 && <span className="text-xs text-slate-400">₹{item.price.toFixed(2)}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            {showLabDropdown && labSearch.length >= 1 && labCatalog?.length === 0 && (
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm text-slate-400">
+                No lab tests found for "{labSearch}"
+              </div>
+            )}
+          </div>
+
+          {selectedLabItems.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {selectedLabItems.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100 text-sm font-medium">
+                  {item.name}
+                  <button type="button" onClick={() => removeLabItem(item.id)} className="text-blue-400 hover:text-blue-600">
+                    {Icons.x}
+                  </button>
+                </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-400">{t('visit.noLabTests')}</p>
+            <p className="text-sm text-slate-400">No lab tests selected.</p>
           )}
         </SectionCard>
 
@@ -456,7 +630,7 @@ export default function NewVisitPage() {
                     key={drug.id}
                     type="button"
                     className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0"
-                    onClick={() => addDrug(drug)}
+                    onClick={() => addDrug(drug.name)}
                   >
                     <div>
                       <span className="font-medium text-slate-800">{drug.name}</span>
@@ -472,28 +646,57 @@ export default function NewVisitPage() {
               </div>
             )}
             {showDrugDropdown && drugSearch.length >= 1 && drugResults?.length === 0 && (
-              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm text-slate-400">
-                {t('visit.noDrugsFound', { query: drugSearch })}
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm flex items-center justify-between">
+                <span className="text-slate-500">No drugs found for "{drugSearch}"</span>
+                <button 
+                  type="button" 
+                  onClick={() => handleCreateAndAddDrug(drugSearch)}
+                  className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-medium transition-colors"
+                >
+                  Create & Add
+                </button>
               </div>
             )}
           </div>
 
-          {prescriptions.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    {[t('visit.colDrug'), t('visit.colMorning'), t('visit.colAfternoon'), t('visit.colEvening'), t('visit.colNight'), t('visit.colWhen'), t('visit.colDetails'), ''].map((h, i) => (
-                      <th key={i} className="text-left py-2 px-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
-                        {h}
-                      </th>
-                    ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  {['Drug', 'Morning', 'Afternoon', 'Evening', 'Night', 'When', 'Details', ''].map((h) => (
+                    <th key={h} className="text-left py-2 px-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {prescriptions.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-6 text-center text-slate-400">
+                      Search and select drugs above to add to the prescription.
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {prescriptions.map((p, i) => (
+                ) : (
+                  prescriptions.map((p, i) => (
                     <tr key={i} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-2 font-medium text-slate-800 whitespace-nowrap">{p.molecule}</td>
+                      <td className="py-2 px-2 whitespace-nowrap group">
+                        <div className="flex items-center gap-1">
+                          <input
+                            className="w-32 border border-slate-200 rounded-lg px-2 py-1 text-xs font-medium text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                            value={p.name}
+                            onChange={(e) => updatePrescription(i, 'name', e.target.value)}
+                          />
+                          <button
+                            type="button"
+                            title="Save to Catalog"
+                            onClick={() => handleSaveDrugToCatalog(p.name)}
+                            className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-blue-600 transition-all p-1"
+                          >
+                            {Icons.plus}
+                          </button>
+                        </div>
+                      </td>
                       {(['morning', 'afternoon', 'evening', 'night'] as const).map((field) => (
                         <td key={field} className="py-2 px-1">
                           <input
@@ -536,15 +739,11 @@ export default function NewVisitPage() {
                         </button>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400 text-center py-3">
-              {t('visit.prescriptionsHint')}
-            </p>
-          )}
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </SectionCard>
 
         {/* Error */}

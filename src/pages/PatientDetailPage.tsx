@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { usePatient } from '../hooks/usePatients'
-import { useVisitHistory } from '../hooks/useVisits'
+import { usePatients, usePatient } from '../hooks/usePatients'
+import { useVisitHistory, useLastVisit } from '../hooks/useVisits'
 import { useLabResults, useUpdateLabResult } from '../hooks/useLabResults'
 import { useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
 import { useMe } from '../hooks/useUsers'
@@ -217,12 +217,144 @@ function VisitCard({ visit }: { visit: VisitResponse }) {
   )
 }
 
-const TABS = [
-  { key: 'visits', labelKey: 'patientDetail.tabVisitHistory' },
-  { key: 'labs', labelKey: 'patientDetail.tabLabResults' },
-  { key: 'billing', labelKey: 'patientDetail.tabBilling' },
-] as const
-type Tab = (typeof TABS)[number]['key']
+export function LatestVisitSummary({ visit }: { visit: VisitResponse }) {
+  const { encounter, vitals, complaints, diagnoses, treatments, prescriptions } = visit
+  const dt = new Date(encounter.encounter_date)
+  
+  return (
+    <div className="bg-white rounded-2xl border-[3px] border-blue-50 shadow-sm p-6 mb-6">
+      <div className="flex items-start justify-between border-b border-slate-100 pb-4 mb-5">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <span className="bg-blue-600 text-white p-1.5 rounded-lg">{Icons.stethoscope}</span> 
+            Latest Visit
+            <span className="text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-medium ml-2">
+              Visit #{encounter.visit_number}
+            </span>
+          </h2>
+          <p className="text-sm text-slate-500 mt-1.5">
+            {dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at {dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+          </p>
+          {encounter.reason && (
+            <p className="text-sm font-semibold text-slate-700 mt-2">"{encounter.reason}"</p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`text-xs px-3 py-1.5 rounded-full font-semibold ${
+            encounter.status === 'Open' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+          }`}>
+            {encounter.status}
+          </span>
+          {encounter.status !== 'Completed' && (
+            <Link
+              to={`/visits/new?patient_id=${encounter.patient_id}&doctor_id=${encounter.doctor_id}&edit=true`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors border border-blue-200"
+            >
+              {Icons.edit} Edit
+            </Link>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Vitals Box */}
+        <div className="bg-red-50/50 rounded-xl p-4 border border-red-100">
+          <p className="text-xs font-bold text-red-600 uppercase tracking-wider mb-2.5">Vitals</p>
+          {vitals.length > 0 ? (
+            <div className="space-y-1.5">
+              {vitals.map(v => (
+                <div key={v.id} className="flex justify-between text-sm">
+                  <span className="text-slate-500 capitalize">{v.vital_config_id === 1 ? 'Blood Pressure' : v.vital_config_id === 2 ? 'Temperature' : 'Vital'}</span>
+                  <span className="font-semibold text-slate-900">{v.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-xs text-slate-400 font-medium">No vitals recorded.</p>}
+        </div>
+
+        {/* Complaints Box */}
+        <div className="bg-orange-50/50 rounded-xl p-4 border border-orange-100">
+          <p className="text-xs font-bold text-orange-600 uppercase tracking-wider mb-2.5">Complaints</p>
+          {complaints.length > 0 ? (
+            <ul className="list-disc list-inside text-sm font-medium text-slate-800 space-y-1">
+              {complaints.map(c => <li key={c.id}>{c.complaint} <span className="text-slate-500 font-normal text-xs">({c.duration})</span></li>)}
+            </ul>
+          ) : <p className="text-xs text-slate-400 font-medium">None</p>}
+        </div>
+
+        {/* Diagnoses Box */}
+        <div className="bg-purple-50/50 rounded-xl p-4 border border-purple-100">
+          <p className="text-xs font-bold text-purple-600 uppercase tracking-wider mb-2.5">Diagnoses</p>
+          {diagnoses.length > 0 ? (
+            <ul className="list-disc list-inside text-sm font-medium text-slate-800 space-y-1">
+              {diagnoses.map(d => <li key={d.id}>{d.diagnosis}</li>)}
+            </ul>
+          ) : <p className="text-xs text-slate-400 font-medium">None</p>}
+        </div>
+
+        {/* Treatments Box */}
+        <div className="bg-cyan-50/50 rounded-xl p-4 border border-cyan-100">
+          <p className="text-xs font-bold text-cyan-600 uppercase tracking-wider mb-2.5">Treatments</p>
+          {treatments.length > 0 ? (
+            <ul className="list-disc list-inside text-sm font-medium text-slate-800 space-y-1">
+              {treatments.map(t => <li key={t.id}>{t.treatment}</li>)}
+            </ul>
+          ) : <p className="text-xs text-slate-400 font-medium">None</p>}
+        </div>
+      </div>
+
+      <div className="mt-4 bg-indigo-50/50 rounded-xl p-4 border border-indigo-100">
+        <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2.5">Prescriptions</p>
+        {prescriptions && prescriptions.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-800">
+              <thead>
+                <tr className="border-b border-indigo-100/50">
+                  <th className="pb-2 font-semibold">Medicine</th>
+                  <th className="pb-2 font-semibold">Dosage</th>
+                  <th className="pb-2 font-semibold">When</th>
+                  <th className="pb-2 font-semibold">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-indigo-100/30">
+                {prescriptions.map((p, i) => (
+                  <tr key={i}>
+                    <td className="py-2 font-medium">{p.name || (p as any).molecule}</td>
+                    <td className="py-2 text-slate-600">{p.morning}-{p.afternoon}-{p.evening}-{p.night}</td>
+                    <td className="py-2 text-slate-600">{p.when}</td>
+                    <td className="py-2 text-slate-600 text-xs">{p.details}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 font-medium">None</p>
+        )}
+      </div>
+
+      {(encounter.notes || encounter.advice) && (
+        <div className="mt-4 bg-slate-50 rounded-xl p-4 border border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {encounter.notes && (
+            <div>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Doctor's Notes</p>
+              <p className="text-sm font-medium text-slate-700">{encounter.notes}</p>
+            </div>
+          )}
+          {encounter.advice && (
+            <div>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Advice</p>
+              <p className="text-sm font-medium text-slate-700">{encounter.advice}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const TABS = ['Visit History', 'Lab Results', 'Billing'] as const
+type Tab = (typeof TABS)[number]
 
 export default function PatientDetailPage() {
   const { t } = useTranslation()
@@ -234,6 +366,7 @@ export default function PatientDetailPage() {
 
   const { data: patient, isLoading: loadingPatient } = usePatient(patientId)
   const { data: visitHistory, isLoading: loadingVisits } = useVisitHistory(patientId, 20)
+  const { data: lastVisit } = useLastVisit(patientId)
   const { data: labResults, isLoading: loadingLabs } = useLabResults(patientId)
   const { data: invoices, isLoading: loadingInvoices } = useInvoices(patientId)
   const { data: me } = useMe()
@@ -298,6 +431,7 @@ export default function PatientDetailPage() {
               <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
                 <span>{patient.contact_number}</span>
                 {patient.email && <span>{patient.email}</span>}
+                {patient.language && <span className="flex items-center gap-1">{Icons.speaker} {patient.language}</span>}
               </div>
             </div>
           </div>
@@ -313,6 +447,8 @@ export default function PatientDetailPage() {
           <p className="text-xs text-slate-400 mt-4 border-t border-slate-100 pt-3">{patient.address}</p>
         )}
       </div>
+
+      {lastVisit && <LatestVisitSummary visit={lastVisit} />}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-5 bg-slate-100 rounded-xl p-1 w-fit">

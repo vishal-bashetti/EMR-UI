@@ -32,5 +32,5 @@ export const updateAppointmentStatus = (id: number, status: string): Promise<App
 export const deleteAppointment = (id: number): Promise<{ detail: string }> =>
   api.delete<{ detail: string }>(`/appointments/${id}`).then((r) => r.data)
 
-export const getAppointmentTypes = (): Promise<AppointmentType[]> =>
-  api.get<AppointmentType[]>('/appointments/types').then((r) => r.data)
+export const getAppointmentTypes = (query?: string): Promise<AppointmentType[]> =>
+  api.get<AppointmentType[]>('/appointments/types', { params: query ? { query } : undefined }).then((r) => r.data)

@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useInvoices, useUpdateInvoiceStatus, useDeleteInvoice, useCreateInvoice } from '../hooks/useBilling'
+import { useInvoices, useUpdateInvoiceStatus, useDeleteInvoice, useCreateInvoice, useUpdateInvoice } from '../hooks/useBilling'
 import { usePatients } from '../hooks/usePatients'
+import { useAppointments } from '../hooks/useAppointments'
 import { suggestBill } from '../api/billing'
 import { Icons } from '../components/Icons'
+import { ItemAutocomplete } from '../components/ItemAutocomplete'
+import { useEffect } from 'react'
 import type { Invoice, InvoiceInput, Patient } from '../types'
 
 const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white'
@@ -28,17 +31,25 @@ const EMPTY_INVOICE: InvoiceFormState = {
   items: [{ service_name: '', quantity: 1, unit_price: '' }],
 }
 
-function CreateInvoiceModal({
+function InvoiceModal({
   patients,
+  invoice,
   onClose,
-  onCreate,
+  onSave,
 }: {
   patients?: Patient[]
+  invoice?: Invoice
   onClose: () => void
-  onCreate: (data: InvoiceInput) => void
+  onSave: (data: InvoiceInput) => void
 }) {
   const { t } = useTranslation()
   const [form, setForm] = useState<InvoiceFormState>(EMPTY_INVOICE)
+    invoice ? {
+      patient_id: String(invoice.patient_id),
+      appointment_id: invoice.appointment_id ? String(invoice.appointment_id) : '',
+      items: invoice.items.length ? invoice.items.map(i => ({ service_name: i.service_name, quantity: i.quantity, unit_price: i.unit_price })) : [{ service_name: '', quantity: 1, unit_price: '' }],
+    } : EMPTY_INVOICE
+  )
   const [suggesting, setSuggesting] = useState(false)
   const [suggestError, setSuggestError] = useState('')
 
@@ -48,6 +59,22 @@ function CreateInvoiceModal({
   const removeItem = (i: number) => setForm((f) => ({ ...f, items: f.items.filter((_, j) => j !== i) }))
   const updateItem = (i: number, field: keyof ItemRow, val: string) =>
     setForm((f) => ({ ...f, items: f.items.map((item, j) => (j === i ? { ...item, [field]: val } : item)) }))
+
+  const handlePatientChange = (pid: string) => {
+    setForm((f) => ({ ...f, patient_id: pid, appointment_id: '' }))
+  }
+
+  const patientIdNum = form.patient_id ? Number(form.patient_id) : undefined
+  const { data: patientAppointments, isFetching: isFetchingAppointments } = useAppointments(patientIdNum ? { patient_id: patientIdNum } : undefined)
+
+  useEffect(() => {
+    if (!invoice && form.patient_id && !form.appointment_id && patientAppointments && patientAppointments.length > 0) {
+      const latest = [...patientAppointments].sort((a, b) => new Date(b.appointment_time).getTime() - new Date(a.appointment_time).getTime())[0]
+      if (latest) {
+        setForm(f => ({ ...f, appointment_id: String(latest.id) }))
+      }
+    }
+  }, [form.patient_id, patientAppointments, invoice, form.appointment_id])
 
   // Pre-fill the invoice from the backend's suggestion for an appointment
   // (consultation fee + any completed lab tests). GET /api/billing/suggest/{id}
@@ -81,11 +108,11 @@ function CreateInvoiceModal({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
-    onCreate({
+    onSave({
       patient_id: Number(form.patient_id),
       appointment_id: form.appointment_id ? Number(form.appointment_id) : undefined,
       amount: totalAmount,
-      status: 'Pending',
+      status: invoice ? invoice.status : 'Pending',
       items: form.items
         .filter((i) => String(i.service_name).trim())
         .map((i) => ({ service_name: i.service_name, quantity: Number(i.quantity), unit_price: Number(i.unit_price) })),
@@ -97,8 +124,8 @@ function CreateInvoiceModal({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-bold text-slate-900">{t('billing.modalTitle')}</h2>
-            <p className="text-xs text-slate-400 mt-0.5">{t('billing.modalSubtitle')}</p>
+            <h2 className="text-base font-bold text-slate-900">{invoice ? 'Edit Invoice' : 'Create Invoice'}</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{invoice ? 'Modify billing items' : 'Add billing items for this patient'}</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
             {Icons.x}
@@ -107,9 +134,9 @@ function CreateInvoiceModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('billing.patient')} <span className="text-red-400">*</span></label>
-              <select required className={inputCls} value={form.patient_id} onChange={(e) => setForm((f) => ({ ...f, patient_id: e.target.value }))}>
-                <option value="">{t('billing.selectPatient')}</option>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Patient <span className="text-red-400">*</span></label>
+              <select required className={inputCls} value={form.patient_id} onChange={(e) => handlePatientChange(e.target.value)}>
+                <option value="">Select patient…</option>
                 {patients?.map((p) => (
                   <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
                 ))}
@@ -118,7 +145,14 @@ function CreateInvoiceModal({
             <div className="col-span-2">
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('billing.appointmentId')} <span className="text-slate-300">{t('common.optional')}</span></label>
               <div className="flex gap-2">
-                <input className={inputCls} type="number" value={form.appointment_id} onChange={(e) => setForm((f) => ({ ...f, appointment_id: e.target.value }))} placeholder="e.g. 12" />
+                <input 
+                  className={inputCls} 
+                  type={isFetchingAppointments ? "text" : "number"} 
+                  value={isFetchingAppointments ? "" : form.appointment_id} 
+                  onChange={(e) => setForm((f) => ({ ...f, appointment_id: e.target.value }))} 
+                  placeholder={isFetchingAppointments ? "Loading..." : "e.g. 12"} 
+                  disabled={isFetchingAppointments}
+                />
                 <button
                   type="button"
                   onClick={loadSuggestion}
@@ -149,7 +183,16 @@ function CreateInvoiceModal({
               </div>
               {form.items.map((item, i) => (
                 <div key={i} className="grid grid-cols-[1fr_60px_90px_20px] gap-2 items-center">
-                  <input className={`${smallInputCls} w-full`} value={item.service_name} onChange={(e) => updateItem(i, 'service_name', e.target.value)} placeholder={t('billing.serviceNamePlaceholder')} />
+                  <ItemAutocomplete
+                    className={`${smallInputCls} w-full`}
+                    value={item.service_name}
+                    onChange={(val) => updateItem(i, 'service_name', val)}
+                    onSelect={(name, price) => {
+                      updateItem(i, 'service_name', name)
+                      updateItem(i, 'unit_price', String(price))
+                    }}
+                    placeholder="Service name"
+                  />
                   <input className={`${smallInputCls} w-full text-center`} type="number" min="1" value={item.quantity} onChange={(e) => updateItem(i, 'quantity', e.target.value)} />
                   <input className={`${smallInputCls} w-full`} type="number" step="0.01" value={item.unit_price} onChange={(e) => updateItem(i, 'unit_price', e.target.value)} placeholder="0.00" />
                   {form.items.length > 1 && (
@@ -168,7 +211,7 @@ function CreateInvoiceModal({
           <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
             <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl">
-              {t('billing.createInvoice')}
+              {invoice ? 'Save Changes' : 'Create Invoice'}
             </button>
           </div>
         </form>
@@ -210,12 +253,26 @@ export default function BillingPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Invoice | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null)
 
-  const { data: invoices, isLoading } = useInvoices()
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const initialStart = `${y}-${m}-01`
+  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate()
+  const initialEnd = `${y}-${m}-${lastDay}`
+
+  const [startDate, setStartDate] = useState(initialStart)
+  const [endDate, setEndDate] = useState(initialEnd)
+
+  const formattedStartDate = startDate ? `${startDate}T00:00:00` : undefined
+  const formattedEndDate = endDate ? `${endDate}T23:59:59` : undefined
+  const { data: invoices, isLoading } = useInvoices(undefined, formattedStartDate, formattedEndDate)
   const { data: patients } = usePatients()
   const updateStatus = useUpdateInvoiceStatus()
   const remove = useDeleteInvoice()
   const create = useCreateInvoice()
+  const update = useUpdateInvoice()
 
   const patientMap: Record<number, string> =
     patients?.reduce((acc, p) => {
@@ -278,26 +335,57 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex items-center gap-1 mb-5 bg-slate-100 rounded-xl p-1 w-fit">
-        {filterTabs.map(([val, label, count]) => (
-          <button
-            key={val}
-            onClick={() => setFilterStatus(val)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              filterStatus === val
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {label}
-            <span className={`text-xs px-1.5 py-0.5 rounded-md font-semibold ${
-              filterStatus === val ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'
-            }`}>
-              {count}
-            </span>
-          </button>
-        ))}
+      {/* Filters and Date Pickers */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+          {filterTabs.map(([val, label, count]) => (
+            <button
+              key={val}
+              onClick={() => setFilterStatus(val)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                filterStatus === val
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {label}
+              <span className={`text-xs px-1.5 py-0.5 rounded-md font-semibold ${
+                filterStatus === val ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'
+              }`}>
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-slate-500">From:</span>
+            <input 
+              type="date" 
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-slate-500">To:</span>
+            <input 
+              type="date" 
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+            />
+          </div>
+          {(startDate || endDate) && (
+            <button 
+              onClick={() => { setStartDate(''); setEndDate(''); }}
+              className="text-xs text-slate-400 hover:text-slate-600 font-medium ml-1"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -329,6 +417,7 @@ export default function BillingPage() {
                   patientName={patientMap[inv.patient_id] || t('billing.patientNum', { id: inv.patient_id })}
                   onToggle={() => setExpandedId(expandedId === inv.id ? null : inv.id)}
                   onStatusChange={(status) => updateStatus.mutate({ id: inv.id, status })}
+                  onEdit={() => setEditingInvoice(inv)}
                   onDelete={() => setConfirmDelete(inv)}
                 />
               ))}
@@ -348,14 +437,20 @@ export default function BillingPage() {
         )}
       </div>
 
-      {/* Create Invoice Modal */}
-      {showCreate && (
-        <CreateInvoiceModal
+      {/* Create / Edit Invoice Modal */}
+      {(showCreate || editingInvoice) && (
+        <InvoiceModal
           patients={patients}
-          onClose={() => setShowCreate(false)}
-          onCreate={async (data) => {
-            await create.mutateAsync(data)
+          invoice={editingInvoice || undefined}
+          onClose={() => { setShowCreate(false); setEditingInvoice(null) }}
+          onSave={async (data) => {
+            if (editingInvoice) {
+              await update.mutateAsync({ id: editingInvoice.id, data })
+            } else {
+              await create.mutateAsync(data)
+            }
             setShowCreate(false)
+            setEditingInvoice(null)
           }}
         />
       )}
@@ -400,6 +495,7 @@ function FragmentRow({
   patientName,
   onToggle,
   onStatusChange,
+  onEdit,
   onDelete,
 }: {
   inv: Invoice
@@ -407,6 +503,7 @@ function FragmentRow({
   patientName: string
   onToggle: () => void
   onStatusChange: (status: string) => void
+  onEdit: () => void
   onDelete: () => void
 }) {
   const { t } = useTranslation()
@@ -435,19 +532,30 @@ function FragmentRow({
           </button>
         </td>
       </tr>
-      {expanded && inv.items.length > 0 && (
+      {expanded && (
         <tr>
-          <td colSpan={6} className="px-8 pb-4 pt-0 bg-slate-50/50">
-            <div className="border-l-2 border-blue-200 pl-4 space-y-1">
-              {inv.items.map((item) => (
-                <div key={item.id} className="flex items-center justify-between text-xs text-slate-600">
-                  <span>{item.service_name}</span>
-                  <span className="text-slate-400">
-                    {item.quantity} &times; ₹{item.unit_price.toFixed(2)} = ₹{(item.quantity * item.unit_price).toFixed(2)}
-                  </span>
-                </div>
-              ))}
+          <td colSpan={6} className="px-8 pb-4 pt-0 bg-slate-50/50 relative">
+            <div className="absolute top-2 right-8 z-10">
+              <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors">
+                {Icons.edit} Edit Bill
+              </button>
             </div>
+            {inv.items?.length > 0 ? (
+              <div className="border-l-2 border-blue-200 pl-4 space-y-1 mt-2">
+                {inv.items.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between text-xs text-slate-600">
+                    <span>{item.service_name}</span>
+                    <span className="text-slate-400">
+                      {item.quantity} &times; ₹{item.unit_price.toFixed(2)} = ₹{(item.quantity * item.unit_price).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="border-l-2 border-blue-200 pl-4 mt-2">
+                <p className="text-xs text-slate-400 italic">No line items in this invoice.</p>
+              </div>
+            )}
           </td>
         </tr>
       )}
