@@ -62,6 +62,7 @@ export interface Patient {
   emergency_contact: string | null
   emergency_phone: string | null
   address: string | null
+  language: string | null
   is_active: number
 }
 
@@ -76,6 +77,7 @@ export interface PatientInput {
   emergency_contact?: string
   emergency_phone?: string
   address?: string
+  language?: string
   is_active?: number
 }
 
@@ -225,7 +227,7 @@ export interface Treatment {
 }
 
 export interface PrescriptionInput {
-  molecule: string
+  name: string
   morning: string
   afternoon: string
   evening: string
@@ -251,12 +253,14 @@ export interface VisitResponse {
   complaints: Complaint[]
   diagnoses: Diagnosis[]
   treatments: Treatment[]
+  prescriptions?: PrescriptionInput[]
 }
 
 export interface VisitPayload {
   patient_id: number
   doctor_id: number
   appointment_id: number | null
+  status: string
   reason: string | null
   notes: string | null
   quick_notes: string | null

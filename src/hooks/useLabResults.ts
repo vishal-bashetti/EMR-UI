@@ -4,11 +4,16 @@ import {
   createLabCatalogItem,
   getLabResults,
   getLabResultsHistory,
+  getLatestLabResults,
   updateLabResult,
 } from '../api/labResults'
 import type { LabResultInput } from '../types'
 
-export const useLabCatalog = () => useQuery({ queryKey: ['labCatalog'], queryFn: getLabCatalog })
+export const useLabCatalog = (query?: string) => useQuery({ 
+  queryKey: ['labCatalog', query], 
+  queryFn: () => getLabCatalog(query),
+  enabled: query === undefined || query.length > 1,
+})
 
 export const useCreateLabCatalogItem = () => {
   const qc = useQueryClient()
@@ -18,11 +23,18 @@ export const useCreateLabCatalogItem = () => {
   })
 }
 
-export const useLabResultsHistory = (patientId?: number, testName?: string) =>
+export const useLabResultsHistory = (patientId?: number, testName?: string, limit = 10) =>
   useQuery({
-    queryKey: ['labResultsHistory', patientId, testName],
-    queryFn: () => getLabResultsHistory(patientId as number, testName, 10),
-    enabled: !!patientId && !!testName,
+    queryKey: ['labResultsHistory', patientId, testName, limit],
+    queryFn: () => getLabResultsHistory(patientId as number, testName, limit),
+    enabled: !!patientId,
+  })
+
+export const useLatestLabResults = (patientId?: number) =>
+  useQuery({
+    queryKey: ['latestLabResults', patientId],
+    queryFn: () => getLatestLabResults(patientId as number),
+    enabled: !!patientId,
   })
 
 export const useLabResults = (patientId?: number) =>

@@ -1,48 +1,697 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
 import { usePatient } from '../hooks/usePatients'
-import { useVitalConfigs, useCreateVisit } from '../hooks/useVisits'
-import { useLabCatalog } from '../hooks/useLabResults'
-import { useDrugs } from '../hooks/useDrugs'
+import { useMe } from '../hooks/useUsers'
+import { useVitalConfigs, useCreateVisit, useUpdateVisit } from '../hooks/useVisits'
+import { useAppointmentStatuses } from '../hooks/useAppointments'
+import { useLabCatalog, useLatestLabResults } from '../hooks/useLabResults'
+import { useDrugs, useCreateDrug } from '../hooks/useDrugs'
 import { getLastVisit } from '../api/visits'
 import { Icons } from '../components/Icons'
-import type { Drug, PrescriptionInput, VisitPayload } from '../types'
+import type { Drug, PrescriptionInput, VitalConfig, VisitPayload } from '../types'
 
-const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-shadow'
-const smallInputCls = 'border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white'
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ComplaintRow { complaint: string; from_date: string; duration: string }
 interface DiagnosisRow { diagnosis: string; date: string }
 interface TreatmentRow { treatment: string; due_date: string }
-
+interface LabItem { id: number; name: string; price: number }
 type CarryStatus = 'loading' | 'loaded' | 'none' | 'error' | null
 
-function SectionCard({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
+// Sidebar section keys — used for scrollspy and navigation
+type SectionKey = 'overview' | 'vitals' | 'complaints' | 'diagnoses' | 'treatments' | 'prescriptions' | 'labs'
+
+// ─── Shared style primitives ──────────────────────────────────────────────────
+
+const inputCls = 'w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-shadow'
+const smallInputCls = 'border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white'
+const labelCls = 'block text-xs font-semibold text-slate-600 mb-1.5'
+
+function FormSection({
+  id, title, icon, badge, children,
+}: {
+  id: SectionKey
+  title: string
+  icon: ReactNode
+  badge?: number
+  children: ReactNode
+}) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-        {icon && <span className="text-slate-400">{icon}</span>}
-        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">{title}</h3>
+    <section
+      id={`visit-section-${id}`}
+      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden scroll-mt-4"
+    >
+      <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
+        <div className="w-7 h-7 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-blue-600 shadow-sm shrink-0">
+          {icon}
+        </div>
+        <span className="text-sm font-bold text-slate-700 tracking-tight">{title}</span>
+        {badge !== undefined && badge > 0 && (
+          <span className="ml-auto text-xs font-bold bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">{badge}</span>
+        )}
       </div>
-      <div className="p-6">{children}</div>
-    </div>
+      <div className="p-5">{children}</div>
+    </section>
   )
 }
 
 function AddRowButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 mt-3"
+    <button type="button" onClick={onClick}
+      className="mt-3 flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg transition-colors -ml-2.5"
     >
       {Icons.plus} {label}
     </button>
   )
 }
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+
+const SIDEBAR_GROUPS: {
+  label: string
+  color: string
+  accentBg: string
+  items: { key: SectionKey; label: string }[]
+}[] = [
+  {
+    label: 'Details',
+    color: 'text-blue-600',
+    accentBg: 'bg-blue-50',
+    items: [
+      { key: 'overview', label: 'Visit Overview' },
+      { key: 'vitals', label: 'Vitals' },
+      { key: 'complaints', label: 'Chief Complaints' },
+    ],
+  },
+  {
+    label: 'Diagnoses',
+    color: 'text-violet-600',
+    accentBg: 'bg-violet-50',
+    items: [
+      { key: 'diagnoses', label: 'Diagnoses' },
+      { key: 'treatments', label: 'Treatments' },
+      { key: 'prescriptions', label: 'Prescriptions' },
+    ],
+  },
+  {
+    label: 'Lab / Reports',
+    color: 'text-emerald-600',
+    accentBg: 'bg-emerald-50',
+    items: [
+      { key: 'labs', label: 'Lab Orders' },
+    ],
+  },
+]
+
+function VisitSidebar({
+  active,
+  counts,
+  carryStatus,
+  onCarryForward,
+  isPending,
+  isEditing,
+  onCancel,
+  patientName,
+  onBackToPatient,
+}: {
+  active: SectionKey
+  counts: Partial<Record<SectionKey, number>>
+  carryStatus: CarryStatus
+  onCarryForward: () => void
+  isPending: boolean
+  isEditing: boolean
+  onCancel: () => void
+  patientName: string
+  onBackToPatient: () => void
+}) {
+  const scrollTo = (key: SectionKey) => {
+    document.getElementById(`visit-section-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <aside className="sticky top-0 h-screen w-56 flex flex-col bg-white border-r border-slate-200 shrink-0 overflow-y-auto">
+      {/* Top: patient context + back link */}
+      <div className="px-3 pt-3 pb-3 border-b border-slate-100">
+        <button
+          type="button"
+          onClick={onBackToPatient}
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-blue-50 transition-colors group"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-blue-500 shrink-0 group-hover:text-blue-600">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          <span className="text-xs font-semibold text-slate-600 group-hover:text-blue-700 truncate leading-tight">
+            {patientName || 'Patient'}
+          </span>
+        </button>
+        <p className="text-[10px] text-slate-400 font-medium px-2.5 mt-0.5">
+          {isEditing ? 'Editing visit' : 'New visit'}
+        </p>
+      </div>
+
+      {/* Carry-forward */}
+      <div className="px-3 pt-3 pb-3 border-b border-slate-100">
+        <button
+          type="button"
+          onClick={onCarryForward}
+          disabled={carryStatus === 'loading'}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-xl transition-colors border border-slate-200"
+        >
+          {carryStatus === 'loading' ? (
+            <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.9"/></svg>
+          )}
+          Load Last Visit
+        </button>
+        {carryStatus === 'loaded' && (
+          <p className="text-center text-[10px] text-emerald-600 font-medium mt-1.5">✓ Previous visit loaded</p>
+        )}
+        {carryStatus === 'none' && (
+          <p className="text-center text-[10px] text-slate-400 mt-1.5">No previous visits found</p>
+        )}
+        {carryStatus === 'error' && (
+          <p className="text-center text-[10px] text-red-500 mt-1.5">Could not load last visit</p>
+        )}
+      </div>
+
+      {/* Section navigation */}
+      <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
+        {SIDEBAR_GROUPS.map(group => (
+          <div key={group.label}>
+            <p className={`text-[9px] font-black uppercase tracking-[0.12em] px-2 mb-1.5 ${group.color}`}>
+              {group.label}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map(item => {
+                const isActive = active === item.key
+                const count = counts[item.key]
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => scrollTo(item.key)}
+                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-all text-left ${
+                      isActive
+                        ? `${group.accentBg} ${group.color} font-semibold`
+                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>{item.label}</span>
+                    {count !== undefined && count > 0 && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                        isActive ? `bg-white/70 ${group.color}` : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* Bottom: save/cancel */}
+      <div className="px-3 py-3 border-t border-slate-100 space-y-2">
+        <button
+          type="submit"
+          form="visit-form"
+          disabled={isPending}
+          className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-xl transition-colors shadow-sm shadow-blue-200"
+        >
+          {isPending ? (
+            <>
+              <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+              Saving…
+            </>
+          ) : (
+            <>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
+              {isEditing ? 'Update Visit' : 'Save Visit'}
+            </>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+// ─── Section: Visit Overview ──────────────────────────────────────────────────
+
+function OverviewSection({
+  status, reason, notes, quickNotes, advice, statuses,
+  onStatus, onReason, onNotes, onQuickNotes, onAdvice,
+}: {
+  status: string; reason: string; notes: string; quickNotes: string; advice: string
+  statuses?: { id: number; name: string }[]
+  onStatus: (v: string) => void; onReason: (v: string) => void
+  onNotes: (v: string) => void; onQuickNotes: (v: string) => void; onAdvice: (v: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <FormSection id="overview" title={t('visit.overview')} icon={Icons.stethoscope}>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className={labelCls}>Visit Status</label>
+          <select className={inputCls} value={status} onChange={e => onStatus(e.target.value)}>
+            {statuses?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>{t('visit.reason')}</label>
+          <input className={inputCls} value={reason} onChange={e => onReason(e.target.value)} placeholder={t('visit.reasonPlaceholder')} />
+        </div>
+        <div className="col-span-2">
+          <label className={labelCls}>{t('visit.notes')}</label>
+          <textarea className={`${inputCls} min-h-[80px] resize-y`} value={notes} onChange={e => onNotes(e.target.value)} placeholder={t('visit.notesPlaceholder')} />
+        </div>
+        <div>
+          <label className={labelCls}>{t('visit.quickNotes')}</label>
+          <textarea className={`${inputCls} min-h-[70px] resize-y`} value={quickNotes} onChange={e => onQuickNotes(e.target.value)} placeholder={t('visit.quickNotesPlaceholder')} />
+        </div>
+        <div>
+          <label className={labelCls}>{t('visit.advice')}</label>
+          <textarea className={`${inputCls} min-h-[70px] resize-y`} value={advice} onChange={e => onAdvice(e.target.value)} placeholder={t('visit.advicePlaceholder')} />
+        </div>
+      </div>
+    </FormSection>
+  )
+}
+
+// ─── Section: Vitals ─────────────────────────────────────────────────────────
+
+function VitalsSection({
+  vitalConfigs, vitals, onChange,
+}: {
+  vitalConfigs: VitalConfig[]
+  vitals: Record<number, string>
+  onChange: (id: number, val: string) => void
+}) {
+  const { t } = useTranslation()
+  const filledCount = vitalConfigs.filter(vc => vitals[vc.id]).length
+
+  return (
+    <FormSection id="vitals" title={t('visit.vitals')} icon={Icons.heartbeat} badge={filledCount || undefined}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {vitalConfigs.map(vc => {
+          const isComputed = vc.data_type === 'computed'
+          const hasValue = !!vitals[vc.id]
+          return (
+            <div key={vc.id}>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className={labelCls + ' mb-0'}>{vc.name}</label>
+                {isComputed && (
+                  <span className="text-[9px] font-bold bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Auto</span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  className={`${inputCls} ${isComputed ? 'bg-slate-50 text-slate-500' : ''} ${hasValue ? 'border-emerald-200 bg-emerald-50/30' : ''}`}
+                  type={['float', 'integer', 'number'].includes(vc.data_type) ? 'number' : 'text'}
+                  value={vitals[vc.id] || ''}
+                  onChange={e => onChange(vc.id, e.target.value)}
+                  placeholder={vc.name}
+                  readOnly={isComputed}
+                  step={vc.data_type === 'float' ? 'any' : undefined}
+                />
+                {hasValue && !isComputed && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </FormSection>
+  )
+}
+
+// ─── Section: Complaints ──────────────────────────────────────────────────────
+
+function ComplaintsSection({
+  complaints, onAdd, onRemove, onUpdate,
+}: {
+  complaints: ComplaintRow[]
+  onAdd: () => void
+  onRemove: (i: number) => void
+  onUpdate: (i: number, field: keyof ComplaintRow, val: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <FormSection id="complaints" title={t('visit.complaints')} icon={Icons.clipboard} badge={complaints.length || undefined}>
+      {complaints.length > 0 && (
+        <div className="space-y-2 mb-1">
+          <div className="grid grid-cols-[1fr_130px_110px_28px] gap-2 px-1">
+            {['Complaint', 'From date', 'Duration', ''].map((h, i) => (
+              <span key={i} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{h}</span>
+            ))}
+          </div>
+          {complaints.map((c, i) => (
+            <div key={i} className="grid grid-cols-[1fr_130px_110px_28px] gap-2 items-center">
+              <input className={`${smallInputCls} w-full`} value={c.complaint} onChange={e => onUpdate(i, 'complaint', e.target.value)} placeholder={t('visit.complaintPlaceholder')} />
+              <input className={`${smallInputCls} w-full`} type="date" value={c.from_date} onChange={e => onUpdate(i, 'from_date', e.target.value)} />
+              <input className={`${smallInputCls} w-full`} value={c.duration} onChange={e => onUpdate(i, 'duration', e.target.value)} placeholder={t('visit.durationPlaceholder')} />
+              <button type="button" onClick={() => onRemove(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">{Icons.x}</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {complaints.length === 0 && (
+        <p className="text-sm text-slate-400 mb-1">{t('visit.noComplaints')}</p>
+      )}
+      <AddRowButton onClick={onAdd} label={t('visit.addComplaint')} />
+    </FormSection>
+  )
+}
+
+// ─── Section: Diagnoses ───────────────────────────────────────────────────────
+
+function DiagnosesSection({
+  diagnoses, onAdd, onRemove, onUpdate,
+}: {
+  diagnoses: DiagnosisRow[]
+  onAdd: () => void
+  onRemove: (i: number) => void
+  onUpdate: (i: number, field: keyof DiagnosisRow, val: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <FormSection id="diagnoses" title={t('visit.diagnoses')} icon={Icons.diagnosis} badge={diagnoses.length || undefined}>
+      {diagnoses.length > 0 && (
+        <div className="space-y-2 mb-1">
+          <div className="grid grid-cols-[1fr_160px_28px] gap-2 px-1">
+            {['Diagnosis', 'Date', ''].map((h, i) => (
+              <span key={i} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{h}</span>
+            ))}
+          </div>
+          {diagnoses.map((d, i) => (
+            <div key={i} className="grid grid-cols-[1fr_160px_28px] gap-2 items-center">
+              <input className={`${smallInputCls} w-full`} value={d.diagnosis} onChange={e => onUpdate(i, 'diagnosis', e.target.value)} placeholder={t('visit.diagnosisPlaceholder')} />
+              <input className={`${smallInputCls} w-full`} type="date" value={d.date} onChange={e => onUpdate(i, 'date', e.target.value)} />
+              <button type="button" onClick={() => onRemove(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">{Icons.x}</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {diagnoses.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noDiagnoses')}</p>}
+      <AddRowButton onClick={onAdd} label={t('visit.addDiagnosis')} />
+    </FormSection>
+  )
+}
+
+// ─── Section: Treatments ─────────────────────────────────────────────────────
+
+function TreatmentsSection({
+  treatments, onAdd, onRemove, onUpdate,
+}: {
+  treatments: TreatmentRow[]
+  onAdd: () => void
+  onRemove: (i: number) => void
+  onUpdate: (i: number, field: keyof TreatmentRow, val: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <FormSection id="treatments" title={t('visit.treatments')} icon={Icons.treatment} badge={treatments.length || undefined}>
+      {treatments.length > 0 && (
+        <div className="space-y-2 mb-1">
+          <div className="grid grid-cols-[1fr_160px_28px] gap-2 px-1">
+            {['Treatment', 'Due date', ''].map((h, i) => (
+              <span key={i} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{h}</span>
+            ))}
+          </div>
+          {treatments.map((tr, i) => (
+            <div key={i} className="grid grid-cols-[1fr_160px_28px] gap-2 items-center">
+              <input className={`${smallInputCls} w-full`} value={tr.treatment} onChange={e => onUpdate(i, 'treatment', e.target.value)} placeholder={t('visit.treatmentPlaceholder')} />
+              <input className={`${smallInputCls} w-full`} type="date" value={tr.due_date} onChange={e => onUpdate(i, 'due_date', e.target.value)} />
+              <button type="button" onClick={() => onRemove(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">{Icons.x}</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {treatments.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noTreatments')}</p>}
+      <AddRowButton onClick={onAdd} label={t('visit.addTreatment')} />
+    </FormSection>
+  )
+}
+
+// ─── Section: Prescriptions ───────────────────────────────────────────────────
+
+function PrescriptionsSection({
+  prescriptions, drugSearch, showDropdown, drugResults, drugSearchRef,
+  onSearchChange, onSearchFocus, onAddDrug, onCreateDrug, onRemove, onUpdate, onSaveToCatalog,
+}: {
+  prescriptions: PrescriptionInput[]
+  drugSearch: string
+  showDropdown: boolean
+  drugResults?: Drug[]
+  drugSearchRef: React.RefObject<HTMLDivElement | null>
+  onSearchChange: (v: string) => void
+  onSearchFocus: () => void
+  onAddDrug: (name: string) => void
+  onCreateDrug: (name: string) => void
+  onRemove: (i: number) => void
+  onUpdate: (i: number, field: keyof PrescriptionInput, val: string) => void
+  onSaveToCatalog: (name: string) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <FormSection id="prescriptions" title={t('visit.prescriptions')} icon={Icons.pill} badge={prescriptions.length || undefined}>
+      {/* Drug search */}
+      <div ref={drugSearchRef} className="relative mb-4">
+        <input
+          className={inputCls}
+          value={drugSearch}
+          onChange={e => onSearchChange(e.target.value)}
+          onFocus={onSearchFocus}
+          placeholder={t('visit.drugSearchPlaceholder')}
+        />
+        {showDropdown && drugResults && drugResults.length > 0 && (
+          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
+            {drugResults.map(drug => (
+              <button key={drug.id} type="button"
+                className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
+                onClick={() => onAddDrug(drug.name)}
+              >
+                <div>
+                  <span className="font-semibold text-slate-800">{drug.name}</span>
+                  {drug.generic_name && <span className="text-slate-400 ml-2 text-xs">{drug.generic_name}</span>}
+                </div>
+                <span className="text-xs text-slate-400 shrink-0">{[drug.form, drug.strength].filter(Boolean).join(' · ')}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {showDropdown && drugSearch.length >= 1 && drugResults?.length === 0 && (
+          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm flex items-center justify-between">
+            <span className="text-slate-400">No drugs found for "{drugSearch}"</span>
+            <button type="button" onClick={() => onCreateDrug(drugSearch)}
+              className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold transition-colors">
+              Create &amp; Add
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Prescription table */}
+      <div className="overflow-x-auto rounded-xl border border-slate-100">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50">
+            <tr>
+              {['Medicine', 'Morning', 'Afternoon', 'Evening', 'Night', 'When', 'Notes', ''].map((h, i) => (
+                <th key={i} className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {prescriptions.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
+                  {t('visit.prescriptionsHint')}
+                </td>
+              </tr>
+            ) : prescriptions.map((p, i) => (
+              <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
+                <td className="px-3 py-2.5 whitespace-nowrap">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      className="w-32 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      value={p.name}
+                      onChange={e => onUpdate(i, 'name', e.target.value)}
+                    />
+                    <button type="button" title="Save to catalog" onClick={() => onSaveToCatalog(p.name)}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-blue-600 transition-all rounded">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    </button>
+                  </div>
+                </td>
+                {(['morning', 'afternoon', 'evening', 'night'] as const).map(field => (
+                  <td key={field} className="px-1.5 py-2.5">
+                    <input
+                      className="w-14 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-mono"
+                      value={p[field]}
+                      onChange={e => onUpdate(i, field, e.target.value)}
+                      placeholder="0"
+                    />
+                  </td>
+                ))}
+                <td className="px-1.5 py-2.5">
+                  <select className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    value={p.when} onChange={e => onUpdate(i, 'when', e.target.value)}>
+                    <option value="">—</option>
+                    <option value="Before food">{t('visit.whenBeforeFood')}</option>
+                    <option value="After food">{t('visit.whenAfterFood')}</option>
+                    <option value="With food">{t('visit.whenWithFood')}</option>
+                    <option value="At bedtime">{t('visit.whenAtBedtime')}</option>
+                    <option value="SOS">{t('visit.whenSos')}</option>
+                  </select>
+                </td>
+                <td className="px-1.5 py-2.5">
+                  <input
+                    className="w-36 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    value={p.details}
+                    onChange={e => onUpdate(i, 'details', e.target.value)}
+                    placeholder={t('visit.detailsPlaceholder')}
+                  />
+                </td>
+                <td className="px-1.5 py-2.5">
+                  <button type="button" onClick={() => onRemove(i)}
+                    className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                    {Icons.x}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </FormSection>
+  )
+}
+
+// ─── Section: Lab Orders ──────────────────────────────────────────────────────
+
+function LabSection({
+  selectedItems, labSearch, showDropdown, labCatalog, labSearchRef, lastLabReports,
+  onSearchChange, onSearchFocus, onAdd, onRemove,
+}: {
+  selectedItems: LabItem[]
+  labSearch: string
+  showDropdown: boolean
+  labCatalog?: LabItem[]
+  labSearchRef: React.RefObject<HTMLDivElement | null>
+  lastLabReports?: Array<{ id: number; test_name: string; result_value: string | null; unit: string | null; reference_range: string | null; status: string; notes: string | null; ordered_date: string }>
+  onSearchChange: (v: string) => void
+  onSearchFocus: () => void
+  onAdd: (item: LabItem) => void
+  onRemove: (id: number) => void
+}) {
+  const [showHistory, setShowHistory] = useState(false)
+
+  return (
+    <FormSection id="labs" title="Lab Orders" icon={Icons.flask} badge={selectedItems.length || undefined}>
+      {/* Previous lab reports collapsible */}
+      {lastLabReports && lastLabReports.length > 0 && (
+        <div className="mb-4 border border-emerald-200 bg-emerald-50/40 rounded-xl overflow-hidden">
+          <button type="button"
+            onClick={() => setShowHistory(s => !s)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100/50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 flex items-center justify-center text-emerald-600">{Icons.flask}</span>
+              Last Lab Report · {new Date(lastLabReports[0].ordered_date).toLocaleDateString()} · {lastLabReports.length} test{lastLabReports.length > 1 ? 's' : ''}
+            </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`w-3.5 h-3.5 transition-transform ${showHistory ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          {showHistory && (
+            <div className="border-t border-emerald-100 divide-y divide-emerald-50">
+              {lastLabReports.map(r => (
+                <div key={r.id} className="px-4 py-2.5 bg-white/60 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-800">{r.test_name}</p>
+                    {r.result_value && (
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {r.result_value} {r.unit} {r.reference_range && <span className="text-slate-400">({r.reference_range})</span>}
+                      </p>
+                    )}
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    r.status === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                    r.status === 'Pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                    'bg-slate-100 text-slate-500 border-slate-200'
+                  }`}>{r.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Lab search */}
+      <div ref={labSearchRef} className="relative mb-4">
+        <input
+          className={inputCls}
+          value={labSearch}
+          onChange={e => onSearchChange(e.target.value)}
+          onFocus={onSearchFocus}
+          placeholder="Search lab tests to order…"
+        />
+        {showDropdown && labCatalog && labCatalog.length > 0 && (
+          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
+            {labCatalog.map((item: LabItem) => (
+              <button key={item.id} type="button"
+                className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
+                onClick={() => onAdd(item)}
+              >
+                <span className="font-medium text-slate-800">{item.name}</span>
+                {item.price > 0 && <span className="text-xs text-slate-400">₹{item.price.toFixed(2)}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {showDropdown && labSearch.length >= 1 && labCatalog?.length === 0 && (
+          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm text-slate-400">
+            No tests found for "{labSearch}"
+          </div>
+        )}
+      </div>
+
+      {/* Selected tests */}
+      {selectedItems.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {selectedItems.map(item => (
+            <div key={item.id}
+              className="flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-sm font-semibold">
+              {item.name}
+              {item.price > 0 && <span className="text-xs text-blue-500 font-normal">₹{item.price.toFixed(0)}</span>}
+              <button type="button" onClick={() => onRemove(item.id)} className="text-blue-400 hover:text-blue-600 transition-colors">
+                {Icons.x}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">{labSearch ? '' : 'Search and select lab tests to order.'}</p>
+      )}
+    </FormSection>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function NewVisitPage() {
   const { t } = useTranslation()
@@ -50,14 +699,23 @@ export default function NewVisitPage() {
   const navigate = useNavigate()
 
   const patientId = Number(searchParams.get('patient_id'))
-  const doctorId = Number(searchParams.get('doctor_id'))
   const appointmentId = searchParams.get('appointment_id') ? Number(searchParams.get('appointment_id')) : null
+
+  const { data: me } = useMe()
+  const doctorIdFromUrl = searchParams.get('doctor_id') ? Number(searchParams.get('doctor_id')) : null
+  const doctorId = doctorIdFromUrl ?? me?.id ?? 0
 
   const { data: patient } = usePatient(patientId)
   const { data: vitalConfigs } = useVitalConfigs()
-  const { data: labCatalog } = useLabCatalog()
+  const { data: statuses } = useAppointmentStatuses()
+  const { data: lastLabReports } = useLatestLabResults(patientId)
   const createVisit = useCreateVisit()
+  const updateVisit = useUpdateVisit()
+  const createDrug = useCreateDrug()
 
+  // ── Form state ──
+  const [editingEncounterId, setEditingEncounterId] = useState<number | null>(null)
+  const [status, setStatus] = useState('Open')
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
   const [quickNotes, setQuickNotes] = useState('')
@@ -66,512 +724,334 @@ export default function NewVisitPage() {
   const [complaints, setComplaints] = useState<ComplaintRow[]>([])
   const [diagnoses, setDiagnoses] = useState<DiagnosisRow[]>([])
   const [treatments, setTreatments] = useState<TreatmentRow[]>([])
-  const [selectedLabs, setSelectedLabs] = useState<number[]>([])
+  const [selectedLabs, setSelectedLabs] = useState<LabItem[]>([])
   const [prescriptions, setPrescriptions] = useState<PrescriptionInput[]>([])
+  const [saveError, setSaveError] = useState('')
 
+  // ── Carry-forward ──
   const [carryStatus, setCarryStatus] = useState<CarryStatus>(null)
-
   const handleCarryForward = async () => {
     setCarryStatus('loading')
     try {
       const data = await getLastVisit(patientId)
       const enc = data.encounter
+      if (enc.status !== 'Completed') setEditingEncounterId(enc.id)
+      setStatus(enc.status || 'Open')
       setReason(enc.reason || '')
       setNotes(enc.notes || '')
       setQuickNotes(enc.quick_notes || '')
       setAdvice(enc.advice || '')
-      setVitals(
-        data.vitals.reduce<Record<number, string>>((acc, v) => ({ ...acc, [v.vital_config_id]: v.value || '' }), {})
-      )
-      setComplaints(data.complaints.map((c) => ({ complaint: c.complaint, from_date: c.from_date || '', duration: c.duration || '' })))
-      setDiagnoses(data.diagnoses.map((d) => ({ diagnosis: d.diagnosis, date: d.date || '' })))
-      setTreatments(data.treatments.map((t) => ({ treatment: t.treatment, due_date: t.due_date || '' })))
+      setVitals(data.vitals.reduce<Record<number, string>>((acc, v) => ({ ...acc, [v.vital_config_id]: v.value || '' }), {}))
+      setComplaints(data.complaints.map(c => ({ complaint: c.complaint, from_date: c.from_date || '', duration: c.duration || '' })))
+      setDiagnoses(data.diagnoses.map(d => ({ diagnosis: d.diagnosis, date: d.date || '' })))
+      setTreatments(data.treatments.map(tr => ({ treatment: tr.treatment, due_date: tr.due_date || '' })))
+      setPrescriptions(data.prescriptions || [])
       setCarryStatus('loaded')
     } catch (e) {
       setCarryStatus(isAxiosError(e) && e.response?.status === 404 ? 'none' : 'error')
     }
   }
 
+  useEffect(() => {
+    if (searchParams.get('edit') === 'true') handleCarryForward()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Vital formula computation ──
+  const lastComputedVitals = useRef<Record<number, string>>({})
+  useEffect(() => {
+    if (!vitalConfigs) return
+    let updated = false
+    const newVitals = { ...vitals }
+    vitalConfigs.forEach(vc => {
+      if (vc.data_type === 'computed' && vc.formula) {
+        let expression = vc.formula
+        vitalConfigs.forEach(inner => {
+          if (inner.data_type !== 'computed') {
+            const val = parseFloat(newVitals[inner.id] || '0') || 0
+            const regex = new RegExp(inner.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+            expression = expression.replace(regex, val.toString())
+          }
+        })
+        try {
+          const result = new Function(`return ${expression}`)()
+          const computed = (isNaN(result) || !isFinite(result) || result === 0) ? '' : result.toFixed(2)
+          if (computed !== lastComputedVitals.current[vc.id]) {
+            newVitals[vc.id] = computed
+            lastComputedVitals.current[vc.id] = computed
+            updated = true
+          }
+        } catch { /* ignore */ }
+      }
+    })
+    if (updated) setVitals(newVitals)
+  }, [vitals, vitalConfigs])
+
+  // ── Drug search ──
   const [drugSearch, setDrugSearch] = useState('')
   const [showDrugDropdown, setShowDrugDropdown] = useState(false)
   const drugSearchRef = useRef<HTMLDivElement>(null)
   const { data: drugResults } = useDrugs(drugSearch)
 
+  // ── Lab search ──
+  const [labSearch, setLabSearch] = useState('')
+  const [showLabDropdown, setShowLabDropdown] = useState(false)
+  const labSearchRef = useRef<HTMLDivElement>(null)
+  const { data: labCatalog } = useLabCatalog(labSearch)
+
+  // close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (drugSearchRef.current && !drugSearchRef.current.contains(e.target as Node)) {
-        setShowDrugDropdown(false)
-      }
+      if (drugSearchRef.current && !drugSearchRef.current.contains(e.target as Node)) setShowDrugDropdown(false)
+      if (labSearchRef.current && !labSearchRef.current.contains(e.target as Node)) setShowLabDropdown(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const addComplaint = () => setComplaints((c) => [...c, { complaint: '', from_date: '', duration: '' }])
-  const removeComplaint = (i: number) => setComplaints((c) => c.filter((_, j) => j !== i))
+  // ── Complaints CRUD ──
+  const addComplaint = () => setComplaints(c => [...c, { complaint: '', from_date: '', duration: '' }])
+  const removeComplaint = (i: number) => setComplaints(c => c.filter((_, j) => j !== i))
   const updateComplaint = (i: number, field: keyof ComplaintRow, val: string) =>
-    setComplaints((c) => c.map((item, j) => (j === i ? { ...item, [field]: val } : item)))
+    setComplaints(c => c.map((item, j) => j === i ? { ...item, [field]: val } : item))
 
-  const addDiagnosis = () => setDiagnoses((d) => [...d, { diagnosis: '', date: '' }])
-  const removeDiagnosis = (i: number) => setDiagnoses((d) => d.filter((_, j) => j !== i))
+  // ── Diagnoses CRUD ──
+  const addDiagnosis = () => setDiagnoses(d => [...d, { diagnosis: '', date: '' }])
+  const removeDiagnosis = (i: number) => setDiagnoses(d => d.filter((_, j) => j !== i))
   const updateDiagnosis = (i: number, field: keyof DiagnosisRow, val: string) =>
-    setDiagnoses((d) => d.map((item, j) => (j === i ? { ...item, [field]: val } : item)))
+    setDiagnoses(d => d.map((item, j) => j === i ? { ...item, [field]: val } : item))
 
-  const addTreatment = () => setTreatments((t) => [...t, { treatment: '', due_date: '' }])
-  const removeTreatment = (i: number) => setTreatments((t) => t.filter((_, j) => j !== i))
+  // ── Treatments CRUD ──
+  const addTreatment = () => setTreatments(t => [...t, { treatment: '', due_date: '' }])
+  const removeTreatment = (i: number) => setTreatments(t => t.filter((_, j) => j !== i))
   const updateTreatment = (i: number, field: keyof TreatmentRow, val: string) =>
-    setTreatments((t) => t.map((item, j) => (j === i ? { ...item, [field]: val } : item)))
+    setTreatments(t => t.map((item, j) => j === i ? { ...item, [field]: val } : item))
 
-  const toggleLab = (id: number) =>
-    setSelectedLabs((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]))
-
-  const addDrug = (drug: Drug) => {
-    setPrescriptions((p) => [
-      ...p,
-      { molecule: drug.name, morning: '', afternoon: '', evening: '', night: '', when: '', details: '' },
-    ])
+  // ── Prescriptions CRUD ──
+  const addDrug = (name: string) => {
+    setPrescriptions(p => [...p, { name, morning: '', afternoon: '', evening: '', night: '', when: '', details: '' }])
     setDrugSearch('')
     setShowDrugDropdown(false)
   }
-  const removePrescription = (i: number) => setPrescriptions((p) => p.filter((_, j) => j !== i))
+  const removePrescription = (i: number) => setPrescriptions(p => p.filter((_, j) => j !== i))
   const updatePrescription = (i: number, field: keyof PrescriptionInput, val: string) =>
-    setPrescriptions((p) => p.map((item, j) => (j === i ? { ...item, [field]: val } : item)))
+    setPrescriptions(p => p.map((item, j) => j === i ? { ...item, [field]: val } : item))
+  const handleCreateDrug = async (name: string) => {
+    try { await createDrug.mutateAsync({ name, is_active: true }); addDrug(name) }
+    catch { alert('Failed to create drug.') }
+  }
+  const handleSaveToCatalog = async (name: string) => {
+    if (window.confirm(`Save "${name}" to drug catalog?`)) {
+      try { await createDrug.mutateAsync({ name, is_active: true }); alert('Saved!') }
+      catch { alert('Failed to save.') }
+    }
+  }
 
+  // ── Lab items CRUD ──
+  const addLabItem = (item: LabItem) => {
+    if (!selectedLabs.find(l => l.id === item.id)) setSelectedLabs(l => [...l, item])
+    setLabSearch('')
+    setShowLabDropdown(false)
+  }
+  const removeLabItem = (id: number) => setSelectedLabs(l => l.filter(x => x.id !== id))
+
+  // ── Scrollspy: track active section ──
+  const [activeSection, setActiveSection] = useState<SectionKey>('overview')
+  const sectionKeys: SectionKey[] = ['overview', 'vitals', 'complaints', 'diagnoses', 'treatments', 'prescriptions', 'labs']
+
+  const handleScroll = useCallback(() => {
+    for (const key of [...sectionKeys].reverse()) {
+      const el = document.getElementById(`visit-section-${key}`)
+      if (!el) continue
+      const rect = el.getBoundingClientRect()
+      if (rect.top <= 120) { setActiveSection(key); break }
+    }
+  }, [])
+
+  useEffect(() => {
+    const content = document.getElementById('visit-content-scroll')
+    content?.addEventListener('scroll', handleScroll, { passive: true })
+    return () => content?.removeEventListener('scroll', handleScroll)
+  }, [handleScroll])
+
+  // ── Submit ──
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    setSaveError('')
     const payload: VisitPayload = {
       patient_id: patientId,
       doctor_id: doctorId,
       appointment_id: appointmentId,
+      status,
       reason: reason || null,
       notes: notes || null,
       quick_notes: quickNotes || null,
       advice: advice || null,
-      vitals: Object.entries(vitals)
-        .filter(([, v]) => v !== '')
-        .map(([id, value]) => ({ vital_config_id: Number(id), value })),
-      complaints: complaints.filter((c) => c.complaint.trim()),
-      diagnoses: diagnoses.filter((d) => d.diagnosis.trim()),
-      treatments: treatments.filter((t) => t.treatment.trim()),
-      lab_test_catalogs: selectedLabs,
-      prescriptions: prescriptions.filter((p) => p.molecule.trim()),
+      vitals: Object.entries(vitals).filter(([, v]) => v !== '').map(([id, value]) => ({ vital_config_id: Number(id), value })),
+      complaints: complaints.filter(c => c.complaint.trim()),
+      diagnoses: diagnoses.filter(d => d.diagnosis.trim()),
+      treatments: treatments.filter(tr => tr.treatment.trim()),
+      lab_test_catalogs: selectedLabs.map(l => l.id),
+      prescriptions: prescriptions.filter(p => p.name.trim()),
     }
     try {
-      await createVisit.mutateAsync(payload)
+      if (editingEncounterId) {
+        await updateVisit.mutateAsync({ id: editingEncounterId, data: payload })
+      } else {
+        await createVisit.mutateAsync(payload)
+      }
       navigate(`/patients/${patientId}`)
-    } catch {
-      // error displayed inline
+    } catch (e) {
+      setSaveError(isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || t('visit.failedSave')) : t('visit.failedSave'))
     }
   }
 
-  if (!patientId || !doctorId) {
+  // ── Guard ──
+  if (!patientId) {
     return (
       <div className="p-8 flex flex-col items-center justify-center h-full text-slate-400">
         <p className="text-sm">{t('visit.missingInfo')}</p>
-        <button onClick={() => navigate(-1)} className="mt-3 text-blue-600 text-sm">{t('visit.goBack')}</button>
+        <button onClick={() => navigate('/patients')} className="mt-3 text-blue-600 text-sm font-medium">{t('visit.goBack')}</button>
       </div>
     )
   }
 
   const patientName = patient ? `${patient.first_name} ${patient.last_name}` : '…'
+  const isPending = createVisit.isPending || updateVisit.isPending
+
+  // sidebar counts
+  const counts: Partial<Record<SectionKey, number>> = {
+    vitals: vitalConfigs?.filter(vc => vitals[vc.id]).length,
+    complaints: complaints.length,
+    diagnoses: diagnoses.length,
+    treatments: treatments.length,
+    prescriptions: prescriptions.length,
+    labs: selectedLabs.length,
+  }
 
   return (
-    <div className="p-8 max-w-4xl pb-16">
-      {/* Header */}
-      <div className="mb-7">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 mb-3 transition-colors"
-        >
-          {Icons.arrowLeft} {t('common.back')}
-        </button>
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">{t('visit.recordVisit')}</h1>
-            {patient && (
-              <p className="text-sm text-slate-400 mt-0.5">
-                {patientName} &middot; {patient.dob} &middot; {patient.gender}
-                {patient.blood_group && ` · ${patient.blood_group}`}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col items-end gap-1">
+    <div className="flex h-screen overflow-hidden bg-slate-50">
+      {/* Mini Sidebar */}
+      <VisitSidebar
+        active={activeSection}
+        counts={counts}
+        carryStatus={carryStatus}
+        onCarryForward={handleCarryForward}
+        isPending={isPending}
+        isEditing={!!editingEncounterId}
+        onCancel={() => navigate(`/patients/${patientId}`)}
+        patientName={patientName}
+        onBackToPatient={() => navigate(`/patients/${patientId}`)}
+      />
+
+      {/* Main content */}
+      <div id="visit-content-scroll" className="flex-1 overflow-y-auto">
+        {/* Sticky breadcrumb bar */}
+        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-2.5 flex items-center justify-between gap-2">
+          {/* Breadcrumb */}
+          <nav className="flex items-center gap-1.5 min-w-0">
             <button
-              type="button"
-              onClick={handleCarryForward}
-              disabled={carryStatus === 'loading'}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 border border-slate-300 hover:border-blue-400 hover:text-blue-600 rounded-xl transition-all bg-white disabled:opacity-60"
+              onClick={() => navigate('/patients')}
+              className="text-sm text-slate-400 hover:text-slate-700 font-medium transition-colors shrink-0"
             >
-              {carryStatus === 'loading' ? (
-                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-                </svg>
-              ) : Icons.arrowLeft}
-              {t('visit.loadLastVisit')}
+              {t('patients.title')}
             </button>
-            {carryStatus === 'loaded' && (
-              <p className="text-xs text-emerald-600 font-medium">{t('visit.previousLoaded')}</p>
-            )}
-            {carryStatus === 'none' && (
-              <p className="text-xs text-slate-400">{t('visit.noPrevious')}</p>
-            )}
-            {carryStatus === 'error' && (
-              <p className="text-xs text-red-500">{t('visit.couldNotLoadLast')}</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Visit Overview */}
-        <SectionCard title={t('visit.overview')} icon={Icons.stethoscope}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                {t('visit.reason')}
-              </label>
-              <input
-                className={inputCls}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder={t('visit.reasonPlaceholder')}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('visit.notes')}</label>
-              <textarea
-                className={`${inputCls} min-h-[80px] resize-y`}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder={t('visit.notesPlaceholder')}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('visit.quickNotes')}</label>
-              <textarea
-                className={`${inputCls} min-h-[70px] resize-y`}
-                value={quickNotes}
-                onChange={(e) => setQuickNotes(e.target.value)}
-                placeholder={t('visit.quickNotesPlaceholder')}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('visit.advice')}</label>
-              <textarea
-                className={`${inputCls} min-h-[70px] resize-y`}
-                value={advice}
-                onChange={(e) => setAdvice(e.target.value)}
-                placeholder={t('visit.advicePlaceholder')}
-              />
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* Vitals */}
-        {vitalConfigs && vitalConfigs.length > 0 && (
-          <SectionCard title={t('visit.vitals')} icon={Icons.heartbeat}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {vitalConfigs.map((vc) => (
-                <div key={vc.id}>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    {vc.name}
-                  </label>
-                  <input
-                    className={inputCls}
-                    type={vc.data_type === 'number' ? 'number' : 'text'}
-                    value={vitals[vc.id] || ''}
-                    onChange={(e) => setVitals((v) => ({ ...v, [vc.id]: e.target.value }))}
-                    placeholder={vc.name}
-                    step={vc.data_type === 'number' ? 'any' : undefined}
-                  />
-                </div>
-              ))}
-            </div>
-          </SectionCard>
-        )}
-
-        {/* Complaints */}
-        <SectionCard title={t('visit.complaints')} icon={Icons.clipboard}>
-          {complaints.length > 0 && (
-            <div className="mb-1 space-y-2">
-              <div className="grid grid-cols-[1fr_140px_120px_24px] gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.complaint')}</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.fromDate')}</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.duration')}</span>
-                <span />
-              </div>
-              {complaints.map((c, i) => (
-                <div key={i} className="grid grid-cols-[1fr_140px_120px_24px] gap-2 items-center">
-                  <input
-                    className={`${smallInputCls} w-full`}
-                    value={c.complaint}
-                    onChange={(e) => updateComplaint(i, 'complaint', e.target.value)}
-                    placeholder={t('visit.complaintPlaceholder')}
-                  />
-                  <input
-                    className={`${smallInputCls} w-full`}
-                    type="date"
-                    value={c.from_date}
-                    onChange={(e) => updateComplaint(i, 'from_date', e.target.value)}
-                  />
-                  <input
-                    className={`${smallInputCls} w-full`}
-                    value={c.duration}
-                    onChange={(e) => updateComplaint(i, 'duration', e.target.value)}
-                    placeholder={t('visit.durationPlaceholder')}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeComplaint(i)}
-                    className="text-slate-300 hover:text-red-500 transition-colors"
-                  >
-                    {Icons.x}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {complaints.length === 0 && (
-            <p className="text-sm text-slate-400 mb-1">{t('visit.noComplaints')}</p>
-          )}
-          <AddRowButton onClick={addComplaint} label={t('visit.addComplaint')} />
-        </SectionCard>
-
-        {/* Diagnoses */}
-        <SectionCard title={t('visit.diagnoses')} icon={Icons.diagnosis}>
-          {diagnoses.length > 0 && (
-            <div className="mb-1 space-y-2">
-              <div className="grid grid-cols-[1fr_160px_24px] gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.diagnosis')}</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.date')}</span>
-                <span />
-              </div>
-              {diagnoses.map((d, i) => (
-                <div key={i} className="grid grid-cols-[1fr_160px_24px] gap-2 items-center">
-                  <input
-                    className={`${smallInputCls} w-full`}
-                    value={d.diagnosis}
-                    onChange={(e) => updateDiagnosis(i, 'diagnosis', e.target.value)}
-                    placeholder={t('visit.diagnosisPlaceholder')}
-                  />
-                  <input
-                    className={`${smallInputCls} w-full`}
-                    type="date"
-                    value={d.date}
-                    onChange={(e) => updateDiagnosis(i, 'date', e.target.value)}
-                  />
-                  <button type="button" onClick={() => removeDiagnosis(i)} className="text-slate-300 hover:text-red-500 transition-colors">
-                    {Icons.x}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {diagnoses.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noDiagnoses')}</p>}
-          <AddRowButton onClick={addDiagnosis} label={t('visit.addDiagnosis')} />
-        </SectionCard>
-
-        {/* Treatments */}
-        <SectionCard title={t('visit.treatments')} icon={Icons.treatment}>
-          {treatments.length > 0 && (
-            <div className="mb-1 space-y-2">
-              <div className="grid grid-cols-[1fr_160px_24px] gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.treatment')}</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.dueDate')}</span>
-                <span />
-              </div>
-              {treatments.map((tr, i) => (
-                <div key={i} className="grid grid-cols-[1fr_160px_24px] gap-2 items-center">
-                  <input
-                    className={`${smallInputCls} w-full`}
-                    value={tr.treatment}
-                    onChange={(e) => updateTreatment(i, 'treatment', e.target.value)}
-                    placeholder={t('visit.treatmentPlaceholder')}
-                  />
-                  <input
-                    className={`${smallInputCls} w-full`}
-                    type="date"
-                    value={tr.due_date}
-                    onChange={(e) => updateTreatment(i, 'due_date', e.target.value)}
-                  />
-                  <button type="button" onClick={() => removeTreatment(i)} className="text-slate-300 hover:text-red-500 transition-colors">
-                    {Icons.x}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {treatments.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noTreatments')}</p>}
-          <AddRowButton onClick={addTreatment} label={t('visit.addTreatment')} />
-        </SectionCard>
-
-        {/* Lab Orders */}
-        <SectionCard title={t('visit.labOrders')} icon={Icons.flask}>
-          {labCatalog && labCatalog.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {labCatalog.map((item) => (
-                <label
-                  key={item.id}
-                  className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                    selectedLabs.includes(item.id)
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedLabs.includes(item.id)}
-                    onChange={() => toggleLab(item.id)}
-                    className="w-4 h-4 text-blue-600 rounded accent-blue-600"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{item.name}</p>
-                    {item.price > 0 && (
-                      <p className="text-xs text-slate-400">₹{item.price.toFixed(2)}</p>
-                    )}
-                  </div>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400">{t('visit.noLabTests')}</p>
-          )}
-        </SectionCard>
-
-        {/* Prescriptions */}
-        <SectionCard title={t('visit.prescriptions')} icon={Icons.pill}>
-          <div ref={drugSearchRef} className="relative mb-4">
-            <input
-              className={inputCls}
-              value={drugSearch}
-              onChange={(e) => { setDrugSearch(e.target.value); setShowDrugDropdown(true) }}
-              onFocus={() => drugSearch.length >= 1 && setShowDrugDropdown(true)}
-              placeholder={t('visit.drugSearchPlaceholder')}
-            />
-            {showDrugDropdown && drugResults && drugResults.length > 0 && (
-              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
-                {drugResults.map((drug) => (
-                  <button
-                    key={drug.id}
-                    type="button"
-                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0"
-                    onClick={() => addDrug(drug)}
-                  >
-                    <div>
-                      <span className="font-medium text-slate-800">{drug.name}</span>
-                      {drug.generic_name && (
-                        <span className="text-slate-400 ml-2 text-xs">{drug.generic_name}</span>
-                      )}
-                    </div>
-                    <span className="text-xs text-slate-400 shrink-0">
-                      {[drug.form, drug.strength].filter(Boolean).join(' · ')}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {showDrugDropdown && drugSearch.length >= 1 && drugResults?.length === 0 && (
-              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm text-slate-400">
-                {t('visit.noDrugsFound', { query: drugSearch })}
-              </div>
-            )}
-          </div>
-
-          {prescriptions.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    {[t('visit.colDrug'), t('visit.colMorning'), t('visit.colAfternoon'), t('visit.colEvening'), t('visit.colNight'), t('visit.colWhen'), t('visit.colDetails'), ''].map((h, i) => (
-                      <th key={i} className="text-left py-2 px-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {prescriptions.map((p, i) => (
-                    <tr key={i} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-2 font-medium text-slate-800 whitespace-nowrap">{p.molecule}</td>
-                      {(['morning', 'afternoon', 'evening', 'night'] as const).map((field) => (
-                        <td key={field} className="py-2 px-1">
-                          <input
-                            className="w-14 border border-slate-200 rounded-lg px-2 py-1 text-center text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                            value={p[field]}
-                            onChange={(e) => updatePrescription(i, field, e.target.value)}
-                            placeholder="0"
-                          />
-                        </td>
-                      ))}
-                      <td className="py-2 px-1">
-                        <select
-                          className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                          value={p.when}
-                          onChange={(e) => updatePrescription(i, 'when', e.target.value)}
-                        >
-                          <option value="">{t('common.dash')}</option>
-                          <option value="Before food">{t('visit.whenBeforeFood')}</option>
-                          <option value="After food">{t('visit.whenAfterFood')}</option>
-                          <option value="With food">{t('visit.whenWithFood')}</option>
-                          <option value="At bedtime">{t('visit.whenAtBedtime')}</option>
-                          <option value="SOS">{t('visit.whenSos')}</option>
-                        </select>
-                      </td>
-                      <td className="py-2 px-1">
-                        <input
-                          className="w-36 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                          value={p.details}
-                          onChange={(e) => updatePrescription(i, 'details', e.target.value)}
-                          placeholder={t('visit.detailsPlaceholder')}
-                        />
-                      </td>
-                      <td className="py-2 px-1">
-                        <button
-                          type="button"
-                          onClick={() => removePrescription(i)}
-                          className="text-slate-300 hover:text-red-500 transition-colors"
-                        >
-                          {Icons.x}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400 text-center py-3">
-              {t('visit.prescriptionsHint')}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-slate-300 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+            <button
+              onClick={() => navigate(`/patients/${patientId}`)}
+              className="text-sm text-slate-500 hover:text-slate-800 font-medium transition-colors truncate max-w-[160px]"
+            >
+              {patientName}
+            </button>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-slate-300 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+            <span className="text-sm font-semibold text-slate-800 shrink-0">
+              {editingEncounterId ? 'Edit Visit' : 'New Visit'}
+            </span>
+          </nav>
+          {/* Patient demographics hint */}
+          {patient && (
+            <p className="text-xs text-slate-400 shrink-0 hidden sm:block">
+              {[patient.gender, patient.blood_group].filter(Boolean).join(' · ')}
             </p>
           )}
-        </SectionCard>
-
-        {/* Error */}
-        {createVisit.isError && (
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
-            {t('visit.failedSave')}
-          </div>
-        )}
-
-        {/* Submit */}
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="px-6 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-          >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={createVisit.isPending}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
-          >
-            {createVisit.isPending ? t('common.saving') : t('visit.saveVisit')}
-          </button>
         </div>
-      </form>
+
+        {/* Form sections */}
+        <form id="visit-form" onSubmit={handleSubmit} className="px-6 py-6 space-y-4 max-w-3xl">
+          <OverviewSection
+            status={status} reason={reason} notes={notes} quickNotes={quickNotes} advice={advice}
+            statuses={statuses}
+            onStatus={setStatus} onReason={setReason} onNotes={setNotes}
+            onQuickNotes={setQuickNotes} onAdvice={setAdvice}
+          />
+
+          {vitalConfigs && vitalConfigs.length > 0 && (
+            <VitalsSection
+              vitalConfigs={vitalConfigs}
+              vitals={vitals}
+              onChange={(id, val) => setVitals(v => ({ ...v, [id]: val }))}
+            />
+          )}
+
+          <ComplaintsSection
+            complaints={complaints}
+            onAdd={addComplaint}
+            onRemove={removeComplaint}
+            onUpdate={updateComplaint}
+          />
+
+          <DiagnosesSection
+            diagnoses={diagnoses}
+            onAdd={addDiagnosis}
+            onRemove={removeDiagnosis}
+            onUpdate={updateDiagnosis}
+          />
+
+          <TreatmentsSection
+            treatments={treatments}
+            onAdd={addTreatment}
+            onRemove={removeTreatment}
+            onUpdate={updateTreatment}
+          />
+
+          <PrescriptionsSection
+            prescriptions={prescriptions}
+            drugSearch={drugSearch}
+            showDropdown={showDrugDropdown}
+            drugResults={drugResults}
+            drugSearchRef={drugSearchRef}
+            onSearchChange={v => { setDrugSearch(v); setShowDrugDropdown(true) }}
+            onSearchFocus={() => drugSearch.length >= 1 && setShowDrugDropdown(true)}
+            onAddDrug={addDrug}
+            onCreateDrug={handleCreateDrug}
+            onRemove={removePrescription}
+            onUpdate={updatePrescription}
+            onSaveToCatalog={handleSaveToCatalog}
+          />
+
+          <LabSection
+            selectedItems={selectedLabs}
+            labSearch={labSearch}
+            showDropdown={showLabDropdown}
+            labCatalog={labCatalog as LabItem[] | undefined}
+            labSearchRef={labSearchRef}
+            lastLabReports={lastLabReports}
+            onSearchChange={v => { setLabSearch(v); setShowLabDropdown(true) }}
+            onSearchFocus={() => labSearch.length >= 1 && setShowLabDropdown(true)}
+            onAdd={addLabItem}
+            onRemove={removeLabItem}
+          />
+
+          {saveError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
+              {saveError}
+            </div>
+          )}
+
+          {/* Bottom padding so last section isn't hidden behind nothing */}
+          <div className="h-8" />
+        </form>
+      </div>
     </div>
   )
 }

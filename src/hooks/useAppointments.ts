@@ -68,5 +68,9 @@ export const useDeleteAppointment = () => {
 export const useAppointmentStatuses = () =>
   useQuery({ queryKey: ['appointmentStatuses'], queryFn: getAppointmentStatuses })
 
-export const useAppointmentTypes = () =>
-  useQuery({ queryKey: ['appointmentTypes'], queryFn: getAppointmentTypes })
+export const useAppointmentTypes = (query?: string) =>
+  useQuery({ 
+    queryKey: ['appointmentTypes', query], 
+    queryFn: () => getAppointmentTypes(query),
+    enabled: query === undefined || query.length > 1,
+  })

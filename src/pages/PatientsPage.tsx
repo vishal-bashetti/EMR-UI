@@ -16,11 +16,12 @@ interface PatientFormState {
   email: string
   blood_group: string
   address: string
+  language: string
 }
 
 const EMPTY_FORM: PatientFormState = {
   first_name: '', last_name: '', dob: '', gender: 'Male',
-  contact_number: '', email: '', blood_group: '', address: '',
+  contact_number: '', email: '', blood_group: '', address: '', language: ''
 }
 
 function Avatar({ name }: { name: string }) {
@@ -242,8 +243,11 @@ export default function PatientsPage() {
                   {['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−'].map((g) => <option key={g}>{g}</option>)}
                 </select>
               </Field>
-              <Field label={t('patients.address')} col2>
+              <Field label="Address">
                 <input className={inputCls} value={form.address} onChange={set('address')} placeholder="123 Main St, City" />
+              </Field>
+              <Field label="Language">
+                <input className={inputCls} value={form.language} onChange={set('language')} placeholder="e.g. English, Spanish" />
               </Field>
 
               {formError && (
