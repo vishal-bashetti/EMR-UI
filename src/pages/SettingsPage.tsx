@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   useUsers, useCreateUser, useDeleteUser,
   useRoles, useCreateRole, useUpdateRole, useDeleteRole,
@@ -49,6 +50,7 @@ function TableRow({ cells, actions }: { cells: ReactNode[]; actions?: ReactNode 
 
 // ─── Users Tab ────────────────────────────────────────────────────────────────
 function UsersTab() {
+  const { t } = useTranslation()
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ username: '', email: '', password: '', role_id: '' })
   const { data: users, isLoading } = useUsers()
@@ -66,38 +68,38 @@ function UsersTab() {
   return (
     <div className="space-y-5">
       <SectionCard
-        title={`Users (${users?.length ?? 0})`}
+        title={t('settings.usersCount', { count: users?.length ?? 0 })}
         action={
           <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
-            {Icons.plus} Add User
+            {Icons.plus} {t('settings.addUser')}
           </button>
         }
       >
         {showAdd && (
           <form onSubmit={handleSubmit} className="px-6 py-4 border-b border-slate-100 bg-blue-50/40 grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Username *</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.username')} *</label>
               <input required className={inputCls} value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} placeholder="johndoe" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Email *</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.email')} *</label>
               <input required type="email" className={inputCls} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="john@clinic.com" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Password *</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.password')} *</label>
               <input required type="password" className={inputCls} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} placeholder="••••••••" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Role</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.role')}</label>
               <select className={inputCls} value={form.role_id} onChange={(e) => setForm((f) => ({ ...f, role_id: e.target.value }))}>
-                <option value="">No role</option>
+                <option value="">{t('settings.noRole')}</option>
                 {roles?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
             </div>
             <div className="col-span-2 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+              <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
               <button type="submit" disabled={createUser.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
-                {createUser.isPending ? 'Adding…' : 'Add User'}
+                {createUser.isPending ? t('common.adding') : t('settings.addUser')}
               </button>
             </div>
           </form>
@@ -106,8 +108,8 @@ function UsersTab() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Username', 'Email', 'Role', 'Status', ''].map((h) => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">{h}</th>
+                {[t('settings.username'), t('settings.email'), t('settings.role'), t('settings.colStatus'), ''].map((h, i) => (
+                  <th key={i} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -120,12 +122,12 @@ function UsersTab() {
                     u.email,
                     u.role?.name ?? <span className="text-slate-300">—</span>,
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                      {u.is_active ? 'Active' : 'Inactive'}
+                      {u.is_active ? t('common.active') : t('common.inactive')}
                     </span>,
                   ]}
                   actions={
                     <button onClick={() => deleteUser.mutate(u.id)} className="text-xs text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                      Deactivate
+                      {t('settings.deactivate')}
                     </button>
                   }
                 />
@@ -140,6 +142,7 @@ function UsersTab() {
 
 // ─── Roles & Permissions Tab ──────────────────────────────────────────────────
 function RolesTab() {
+  const { t } = useTranslation()
   const [showAddPerm, setShowAddPerm] = useState(false)
   const [showAddRole, setShowAddRole] = useState(false)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
@@ -191,21 +194,21 @@ function RolesTab() {
     <div className="grid grid-cols-2 gap-5">
       {/* Permissions */}
       <SectionCard
-        title={`Permissions (${permissions?.length ?? 0})`}
+        title={t('settings.permissionsCount', { count: permissions?.length ?? 0 })}
         action={
           <button onClick={() => setShowAddPerm((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
-            {Icons.plus} Add
+            {Icons.plus} {t('common.add')}
           </button>
         }
       >
         {showAddPerm && (
           <form onSubmit={handleAddPerm} className="px-4 py-3 border-b border-slate-100 bg-blue-50/40 space-y-2">
-            <input required className={inputCls} value={permForm.name} onChange={(e) => setPermForm((f) => ({ ...f, name: e.target.value }))} placeholder="Permission name (e.g. manage_billing)" />
-            <input className={inputCls} value={permForm.description} onChange={(e) => setPermForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description (optional)" />
+            <input required className={inputCls} value={permForm.name} onChange={(e) => setPermForm((f) => ({ ...f, name: e.target.value }))} placeholder={t('settings.permNamePlaceholder')} />
+            <input className={inputCls} value={permForm.description} onChange={(e) => setPermForm((f) => ({ ...f, description: e.target.value }))} placeholder={t('settings.permDescPlaceholder')} />
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setShowAddPerm(false)} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+              <button type="button" onClick={() => setShowAddPerm(false)} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">{t('common.cancel')}</button>
               <button type="submit" disabled={createPerm.isPending} className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-60">
-                {createPerm.isPending ? 'Adding…' : 'Add'}
+                {createPerm.isPending ? t('common.adding') : t('common.add')}
               </button>
             </div>
           </form>
@@ -222,7 +225,7 @@ function RolesTab() {
               </div>
             ))}
             {permissions?.length === 0 && (
-              <p className="px-5 py-4 text-sm text-slate-400">No permissions yet.</p>
+              <p className="px-5 py-4 text-sm text-slate-400">{t('settings.noPermissions')}</p>
             )}
           </div>
         )}
@@ -230,18 +233,18 @@ function RolesTab() {
 
       {/* Roles */}
       <SectionCard
-        title={`Roles (${roles?.length ?? 0})`}
+        title={t('settings.rolesCount', { count: roles?.length ?? 0 })}
         action={
           <button onClick={() => { setShowAddRole((v) => !v); setEditingRole(null); setRoleForm({ name: '', permission_ids: [] }) }} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
-            {Icons.plus} Add Role
+            {Icons.plus} {t('settings.addRole')}
           </button>
         }
       >
         {showAddRole && (
           <form onSubmit={handleAddRole} className="px-4 py-3 border-b border-slate-100 bg-blue-50/40 space-y-3">
-            <input required className={inputCls} value={roleForm.name} onChange={(e) => setRoleForm((f) => ({ ...f, name: e.target.value }))} placeholder="Role name (e.g. Doctor)" />
+            <input required className={inputCls} value={roleForm.name} onChange={(e) => setRoleForm((f) => ({ ...f, name: e.target.value }))} placeholder={t('settings.roleNamePlaceholder')} />
             <div>
-              <p className="text-xs font-semibold text-slate-500 mb-2">Permissions</p>
+              <p className="text-xs font-semibold text-slate-500 mb-2">{t('settings.permissions')}</p>
               <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
                 {permissions?.map((p) => (
                   <label key={p.id} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs cursor-pointer transition-all ${
@@ -256,9 +259,9 @@ function RolesTab() {
               </div>
             </div>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => { setShowAddRole(false); setEditingRole(null) }} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+              <button type="button" onClick={() => { setShowAddRole(false); setEditingRole(null) }} className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">{t('common.cancel')}</button>
               <button type="submit" className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg">
-                {editingRole ? 'Update' : 'Create'} Role
+                {editingRole ? t('settings.updateRoleBtn') : t('settings.createRoleBtn')}
               </button>
             </div>
           </form>
@@ -275,17 +278,17 @@ function RolesTab() {
                         {p.name}
                       </span>
                     ))}
-                    {role.permissions.length === 0 && <span className="text-xs text-slate-300">No permissions</span>}
+                    {role.permissions.length === 0 && <span className="text-xs text-slate-300">{t('settings.noPermissionsAssigned')}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
-                  <button onClick={() => startEditRole(role)} className="text-xs text-blue-500 hover:text-blue-700">Edit</button>
-                  <button onClick={() => deleteRole.mutate(role.id)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                  <button onClick={() => startEditRole(role)} className="text-xs text-blue-500 hover:text-blue-700">{t('common.edit')}</button>
+                  <button onClick={() => deleteRole.mutate(role.id)} className="text-xs text-red-400 hover:text-red-600">{t('common.delete')}</button>
                 </div>
               </div>
             ))}
             {roles?.length === 0 && (
-              <p className="px-5 py-4 text-sm text-slate-400">No roles yet.</p>
+              <p className="px-5 py-4 text-sm text-slate-400">{t('settings.noRoles')}</p>
             )}
           </div>
         )}
@@ -299,6 +302,7 @@ const EMPTY_DRUG: DrugInput = { name: '', generic_name: '', form: '', strength: 
 type DrugTextField = 'name' | 'generic_name' | 'form' | 'strength' | 'manufacturer'
 
 function DrugsTab() {
+  const { t } = useTranslation()
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState<DrugInput>(EMPTY_DRUG)
   const { data: drugs, isLoading } = useAllDrugs()
@@ -317,42 +321,42 @@ function DrugsTab() {
 
   return (
     <SectionCard
-      title={`Drug Catalog (${drugs?.length ?? 0})`}
+      title={t('settings.drugCatalogCount', { count: drugs?.length ?? 0 })}
       action={
         <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
-          {Icons.plus} Add Drug
+          {Icons.plus} {t('settings.addDrug')}
         </button>
       }
     >
       {showAdd && (
         <form onSubmit={handleSubmit} className="px-6 py-4 border-b border-slate-100 bg-blue-50/40 grid grid-cols-3 gap-3">
           <div className="col-span-3">
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Drug Name *</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.drugName')} *</label>
             <input required className={inputCls} value={form.name} onChange={set('name')} placeholder="e.g. Tylenol" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Generic Name</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.genericName')}</label>
             <input className={inputCls} value={form.generic_name} onChange={set('generic_name')} placeholder="e.g. Acetaminophen" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Form</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.form')}</label>
             <select className={inputCls} value={form.form} onChange={set('form')}>
-              <option value="">Select…</option>
+              <option value="">{t('settings.selectForm')}</option>
               {['Tablet', 'Capsule', 'Syrup', 'Injection', 'Drops', 'Cream', 'Ointment', 'Inhaler', 'Patch'].map((f) => <option key={f}>{f}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Strength</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.strength')}</label>
             <input className={inputCls} value={form.strength} onChange={set('strength')} placeholder="e.g. 500mg" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Manufacturer</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.manufacturer')}</label>
             <input className={inputCls} value={form.manufacturer} onChange={set('manufacturer')} placeholder="e.g. J&J" />
           </div>
           <div className="col-span-3 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+            <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
             <button type="submit" disabled={createDrug.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
-              {createDrug.isPending ? 'Adding…' : 'Add Drug'}
+              {createDrug.isPending ? t('common.adding') : t('settings.addDrug')}
             </button>
           </div>
         </form>
@@ -361,8 +365,8 @@ function DrugsTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
-              {['Name', 'Generic', 'Form', 'Strength', 'Manufacturer', ''].map((h) => (
-                <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">{h}</th>
+              {[t('settings.colName'), t('settings.colGeneric'), t('settings.colForm'), t('settings.colStrength'), t('settings.colManufacturer'), ''].map((h, i) => (
+                <th key={i} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">{h}</th>
               ))}
             </tr>
           </thead>
@@ -392,13 +396,13 @@ function DrugsTab() {
                     })}
                     className={`text-xs opacity-0 group-hover:opacity-100 transition-opacity ${d.is_active ? 'text-red-400 hover:text-red-600' : 'text-emerald-500 hover:text-emerald-700'}`}
                   >
-                    {d.is_active ? 'Deactivate' : 'Activate'}
+                    {d.is_active ? t('settings.deactivate') : t('settings.activate')}
                   </button>
                 }
               />
             ))}
             {drugs?.length === 0 && (
-              <tr><td colSpan={6} className="px-6 py-8 text-sm text-slate-400 text-center">No drugs in catalog.</td></tr>
+              <tr><td colSpan={6} className="px-6 py-8 text-sm text-slate-400 text-center">{t('settings.noDrugs')}</td></tr>
             )}
           </tbody>
         </table>
@@ -409,6 +413,7 @@ function DrugsTab() {
 
 // ─── Lab Catalog Tab ──────────────────────────────────────────────────────────
 function LabCatalogTab() {
+  const { t } = useTranslation()
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ name: '', description: '', price: '' })
   const { data: catalog, isLoading } = useLabCatalog()
@@ -423,31 +428,31 @@ function LabCatalogTab() {
 
   return (
     <SectionCard
-      title={`Lab Catalog (${catalog?.length ?? 0} tests)`}
+      title={t('settings.labCatalogCount', { count: catalog?.length ?? 0 })}
       action={
         <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
-          {Icons.plus} Add Test
+          {Icons.plus} {t('settings.addTest')}
         </button>
       }
     >
       {showAdd && (
         <form onSubmit={handleSubmit} className="px-6 py-4 border-b border-slate-100 bg-blue-50/40 grid grid-cols-3 gap-3">
           <div className="col-span-2">
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Test Name *</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.testName')} *</label>
             <input required className={inputCls} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Complete Blood Count" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Price (₹)</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.price')}</label>
             <input type="number" step="0.01" className={inputCls} value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} placeholder="0.00" />
           </div>
           <div className="col-span-3">
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Description</label>
-            <input className={inputCls} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Optional description" />
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.description')}</label>
+            <input className={inputCls} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder={t('settings.descriptionPlaceholder')} />
           </div>
           <div className="col-span-3 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+            <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
             <button type="submit" disabled={createItem.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
-              {createItem.isPending ? 'Adding…' : 'Add Test'}
+              {createItem.isPending ? t('common.adding') : t('settings.addTest')}
             </button>
           </div>
         </form>
@@ -456,8 +461,8 @@ function LabCatalogTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
-              {['Test Name', 'Description', 'Price', 'Status'].map((h) => (
-                <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6">{h}</th>
+              {[t('settings.colTestName'), t('settings.colDescription'), t('settings.colPrice'), t('settings.colStatus')].map((h, i) => (
+                <th key={i} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6">{h}</th>
               ))}
             </tr>
           </thead>
@@ -468,15 +473,15 @@ function LabCatalogTab() {
                 cells={[
                   <span className="font-medium text-slate-800">{item.name}</span>,
                   item.description || <span className="text-slate-300">—</span>,
-                  item.price > 0 ? `₹${item.price.toFixed(2)}` : <span className="text-slate-300">Free</span>,
+                  item.price > 0 ? `₹${item.price.toFixed(2)}` : <span className="text-slate-300">{t('common.free')}</span>,
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${item.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                    {item.is_active ? 'Active' : 'Inactive'}
+                    {item.is_active ? t('common.active') : t('common.inactive')}
                   </span>,
                 ]}
               />
             ))}
             {catalog?.length === 0 && (
-              <tr><td colSpan={4} className="px-6 py-8 text-sm text-slate-400 text-center">No lab tests in catalog.</td></tr>
+              <tr><td colSpan={4} className="px-6 py-8 text-sm text-slate-400 text-center">{t('settings.noLabTests')}</td></tr>
             )}
           </tbody>
         </table>
@@ -487,6 +492,7 @@ function LabCatalogTab() {
 
 // ─── Appointment Statuses Tab ─────────────────────────────────────────────────
 function ApptStatusesTab() {
+  const { t } = useTranslation()
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ name: '', color: '#3b82f6' })
   const { data: statuses, isLoading } = useAppointmentStatuses()
@@ -501,26 +507,26 @@ function ApptStatusesTab() {
 
   return (
     <SectionCard
-      title={`Appointment Statuses (${statuses?.length ?? 0})`}
+      title={t('settings.statusesCount', { count: statuses?.length ?? 0 })}
       action={
         <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
-          {Icons.plus} Add Status
+          {Icons.plus} {t('settings.addStatus')}
         </button>
       }
     >
       {showAdd && (
         <form onSubmit={handleSubmit} className="px-6 py-4 border-b border-slate-100 bg-blue-50/40 flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Status Name *</label>
-            <input required className={inputCls} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Waiting, No Show…" />
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.statusName')} *</label>
+            <input required className={inputCls} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder={t('settings.statusNamePlaceholder')} />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Color</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.color')}</label>
             <input type="color" className="h-10 w-16 border border-slate-300 rounded-xl cursor-pointer" value={form.color} onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))} />
           </div>
-          <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">Cancel</button>
+          <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
           <button type="submit" disabled={createStatus.isPending} className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
-            {createStatus.isPending ? 'Adding…' : 'Add'}
+            {createStatus.isPending ? t('common.adding') : t('common.add')}
           </button>
         </form>
       )}
@@ -528,8 +534,8 @@ function ApptStatusesTab() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
-              {['Status', 'Color', 'Active'].map((h) => (
-                <th key={h} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6">{h}</th>
+              {[t('settings.colStatusName'), t('settings.colColor'), t('settings.colActive')].map((h, i) => (
+                <th key={i} className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6">{h}</th>
               ))}
             </tr>
           </thead>
@@ -546,13 +552,13 @@ function ApptStatusesTab() {
                     </span>
                   ) : <span className="text-slate-300">—</span>,
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${s.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                    {s.is_active ? 'Active' : 'Inactive'}
+                    {s.is_active ? t('common.active') : t('common.inactive')}
                   </span>,
                 ]}
               />
             ))}
             {statuses?.length === 0 && (
-              <tr><td colSpan={3} className="px-6 py-8 text-sm text-slate-400 text-center">No statuses configured.</td></tr>
+              <tr><td colSpan={3} className="px-6 py-8 text-sm text-slate-400 text-center">{t('settings.noStatuses')}</td></tr>
             )}
           </tbody>
         </table>
@@ -564,22 +570,23 @@ function ApptStatusesTab() {
 // ─── Main Settings Page ───────────────────────────────────────────────────────
 type TabKey = 'users' | 'roles' | 'drugs' | 'lab' | 'statuses'
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'users', label: 'Users' },
-  { key: 'roles', label: 'Roles & Permissions' },
-  { key: 'drugs', label: 'Drugs' },
-  { key: 'lab', label: 'Lab Catalog' },
-  { key: 'statuses', label: 'Appt. Statuses' },
+const TABS: { key: TabKey; labelKey: string }[] = [
+  { key: 'users', labelKey: 'settings.tabUsers' },
+  { key: 'roles', labelKey: 'settings.tabRoles' },
+  { key: 'drugs', labelKey: 'settings.tabDrugs' },
+  { key: 'lab', labelKey: 'settings.tabLab' },
+  { key: 'statuses', labelKey: 'settings.tabStatuses' },
 ]
 
 export default function SettingsPage() {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<TabKey>('users')
 
   return (
     <div className="p-8 max-w-6xl">
       <div className="mb-7">
-        <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-400 mt-0.5">Manage users, roles, drugs, lab catalog, and appointment statuses</p>
+        <h1 className="text-2xl font-bold text-slate-900">{t('settings.title')}</h1>
+        <p className="text-sm text-slate-400 mt-0.5">{t('settings.subtitle')}</p>
       </div>
 
       <div className="flex items-center gap-1 mb-6 bg-slate-100 rounded-xl p-1 w-fit flex-wrap">
@@ -593,7 +600,7 @@ export default function SettingsPage() {
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            {tab.label}
+            {t(tab.labelKey)}
           </button>
         ))}
       </div>

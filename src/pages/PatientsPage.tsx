@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
 import { usePatients, useCreatePatient, useDeletePatient } from '../hooks/usePatients'
 import { Icons } from '../components/Icons'
@@ -47,6 +48,7 @@ function Field({ label, children, required, col2 }: { label: string; children: R
 const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-shadow'
 
 export default function PatientsPage() {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<PatientFormState>(EMPTY_FORM)
@@ -69,7 +71,7 @@ export default function PatientsPage() {
       setShowForm(false)
     } catch (err) {
       const detail = isAxiosError(err) ? (err.response?.data as { detail?: string } | undefined)?.detail : undefined
-      setFormError(detail || 'Failed to create patient. Please try again.')
+      setFormError(detail || t('patients.failedCreate'))
     }
   }
 
@@ -78,16 +80,16 @@ export default function PatientsPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Patients</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{t('patients.title')}</h1>
           <p className="text-sm text-slate-400 mt-0.5">
-            {patients?.length ?? 0} active records
+            {t('patients.activeRecords', { count: patients?.length ?? 0 })}
           </p>
         </div>
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
         >
-          {Icons.plus} New Patient
+          {Icons.plus} {t('patients.newPatient')}
         </button>
       </div>
 
@@ -96,7 +98,7 @@ export default function PatientsPage() {
         <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">{Icons.search}</span>
         <input
           type="text"
-          placeholder="Search name, phone or email…"
+          placeholder={t('patients.searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
@@ -116,8 +118,8 @@ export default function PatientsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Patient', 'Date of Birth', 'Gender', 'Contact', 'Blood Group', ''].map((h) => (
-                  <th key={h} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
+                {[t('patients.colPatient'), t('patients.colDob'), t('patients.colGender'), t('patients.colContact'), t('patients.colBloodGroup'), ''].map((h, i) => (
+                  <th key={i} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
                     {h}
                   </th>
                 ))}
@@ -133,7 +135,7 @@ export default function PatientsPage() {
                         <Avatar name={name} />
                         <div>
                           <p className="font-semibold text-slate-800">{name}</p>
-                          <p className="text-xs text-slate-400">{p.email || 'No email'}</p>
+                          <p className="text-xs text-slate-400">{p.email || t('common.noEmail')}</p>
                         </div>
                       </div>
                     </td>
@@ -162,14 +164,14 @@ export default function PatientsPage() {
                         <Link
                           to={`/patients/${p.id}`}
                           className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="View patient"
+                          title={t('patients.viewPatient')}
                         >
                           {Icons.eye}
                         </Link>
                         <button
                           onClick={() => setConfirmDelete(p)}
                           className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete patient"
+                          title={t('patients.deletePatient')}
                         >
                           {Icons.trash}
                         </button>
@@ -186,8 +188,8 @@ export default function PatientsPage() {
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
                         <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                       </svg>
-                      <p className="text-sm font-medium">No patients found</p>
-                      <p className="text-xs mt-1">Try adjusting your search or add a new patient.</p>
+                      <p className="text-sm font-medium">{t('patients.noneFound')}</p>
+                      <p className="text-xs mt-1">{t('patients.noneFoundSub')}</p>
                     </div>
                   </td>
                 </tr>
@@ -203,8 +205,8 @@ export default function PatientsPage() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
               <div>
-                <h2 className="text-base font-bold text-slate-900">New Patient</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Fill in the patient's details below</p>
+                <h2 className="text-base font-bold text-slate-900">{t('patients.modalTitle')}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">{t('patients.modalSubtitle')}</p>
               </div>
               <button onClick={() => setShowForm(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
                 {Icons.x}
@@ -212,35 +214,35 @@ export default function PatientsPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 grid grid-cols-2 gap-4">
-              <Field label="First Name" required>
+              <Field label={t('patients.firstName')} required>
                 <input className={inputCls} value={form.first_name} onChange={set('first_name')} required placeholder="John" />
               </Field>
-              <Field label="Last Name" required>
+              <Field label={t('patients.lastName')} required>
                 <input className={inputCls} value={form.last_name} onChange={set('last_name')} required placeholder="Doe" />
               </Field>
-              <Field label="Date of Birth" required>
+              <Field label={t('patients.dob')} required>
                 <input className={inputCls} type="date" value={form.dob} onChange={set('dob')} required />
               </Field>
-              <Field label="Gender">
+              <Field label={t('patients.colGender')}>
                 <select className={inputCls} value={form.gender} onChange={set('gender')}>
-                  <option>Male</option>
-                  <option>Female</option>
-                  <option>Other</option>
+                  <option value="Male">{t('gender.male')}</option>
+                  <option value="Female">{t('gender.female')}</option>
+                  <option value="Other">{t('gender.other')}</option>
                 </select>
               </Field>
-              <Field label="Contact Number" required>
+              <Field label={t('patients.contactNumber')} required>
                 <input className={inputCls} value={form.contact_number} onChange={set('contact_number')} required placeholder="+1 555 0000" />
               </Field>
-              <Field label="Email">
+              <Field label={t('patients.email')}>
                 <input className={inputCls} type="email" value={form.email} onChange={set('email')} placeholder="john@example.com" />
               </Field>
-              <Field label="Blood Group">
+              <Field label={t('patients.bloodGroup')}>
                 <select className={inputCls} value={form.blood_group} onChange={set('blood_group')}>
-                  <option value="">— Select —</option>
+                  <option value="">{t('common.select')}</option>
                   {['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−'].map((g) => <option key={g}>{g}</option>)}
                 </select>
               </Field>
-              <Field label="Address" col2>
+              <Field label={t('patients.address')} col2>
                 <input className={inputCls} value={form.address} onChange={set('address')} placeholder="123 Main St, City" />
               </Field>
 
@@ -252,11 +254,11 @@ export default function PatientsPage() {
               <div className="col-span-2 flex justify-end gap-3 pt-2 border-t border-slate-100 mt-2">
                 <button type="button" onClick={() => { setShowForm(false); setFormError('') }}
                   className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button type="submit" disabled={create.isPending}
                   className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
-                  {create.isPending ? 'Saving…' : 'Save Patient'}
+                  {create.isPending ? t('common.saving') : t('patients.savePatient')}
                 </button>
               </div>
             </form>
@@ -271,19 +273,19 @@ export default function PatientsPage() {
             <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mb-4 text-red-500">
               {Icons.trash}
             </div>
-            <h3 className="text-base font-bold text-slate-900">Delete Patient?</h3>
+            <h3 className="text-base font-bold text-slate-900">{t('patients.deleteTitle')}</h3>
             <p className="text-sm text-slate-500 mt-1 mb-5">
-              This will deactivate <span className="font-medium text-slate-700">{confirmDelete.first_name} {confirmDelete.last_name}</span>. This action can be undone by an admin.
+              {t('patients.deleteConfirm', { name: `${confirmDelete.first_name} ${confirmDelete.last_name}` })}
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => { remove.mutate(confirmDelete.id); setConfirmDelete(null) }}
                 className="flex-1 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors"
               >
-                Delete
+                {t('common.delete')}
               </button>
             </div>
           </div>

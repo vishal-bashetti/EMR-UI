@@ -51,6 +51,7 @@ App runs at `http://localhost:5173`.
 | TanStack Query | Server state, caching, invalidation |
 | Zustand | Auth state (tokens, current user) |
 | React Router v7 | Client-side routing & protected routes |
+| i18next + react-i18next | Internationalization (English + Kannada / ಕನ್ನಡ) |
 
 ## Project Structure
 
@@ -63,6 +64,11 @@ src/
     auth.ts            # OAuth2 password login
     patients.ts  appointments.ts  billing.ts  settings.ts
     users.ts     visits.ts        drugs.ts    labResults.ts
+  i18n/
+    index.ts           # i18next init, language detection, SUPPORTED_LANGUAGES
+    locales/
+      en.json          # English translations (all UI strings)
+      kn.json          # Kannada (ಕನ್ನಡ) translations — full parity with en.json
   store/
     authStore.ts       # Zustand: tokens, user, login/logout
   hooks/               # TanStack Query hooks wrapping the API layer
@@ -138,7 +144,25 @@ docker compose up -d
 
 The backend connects to a PostgreSQL database via the `DATABASE_URL` in `../EMR/.env`.
 
+## Internationalization (i18n)
+
+All UI strings go through `react-i18next` and live in `src/i18n/locales/`. **English (`en.json`)
+and Kannada (`kn.json`, ಕನ್ನಡ) are both fully translated** and kept at key parity. The active
+language is detected from `localStorage` (falling back to the browser language) and can be changed
+via the language switcher in the sidebar. Missing keys fall back to English.
+
+To add another language:
+
+1. Create `src/i18n/locales/<code>.json` mirroring the structure of `en.json`.
+2. In `src/i18n/index.ts`, import it, add `<code>: { translation: ... }` to `resources`,
+   and add `{ code: '<code>', label: '...' }` to `SUPPORTED_LANGUAGES`.
+
+The switcher and language detection then pick it up automatically.
+
+> Note: dynamic data from the backend (admin-configured appointment statuses, drug names,
+> patient details, role names) is intentionally not translated — only UI copy is.
+
 ## TODO
 
-- [ ] **Internationalization (i18n)** — add multi-language support, starting with English and Kannada (ಕನ್ನಡ).
+- [x] **Internationalization (i18n)** — English and Kannada (ಕನ್ನಡ) fully implemented.
 - [ ] **Unit test cases** — add a test suite (e.g. Vitest + React Testing Library) covering the API layer, hooks, and key page flows.

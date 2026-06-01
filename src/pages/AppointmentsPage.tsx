@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { FormEvent, MouseEvent, ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   useAppointments,
   useAppointment,
@@ -268,6 +269,7 @@ const EMPTY_PATIENT_FORM: NewPatientForm = {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function AppointmentsPage() {
+  const { t } = useTranslation()
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const d = new Date()
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
@@ -405,17 +407,17 @@ export default function AppointmentsPage() {
               </svg>
             </div>
             <h1 style={{ fontSize: 27, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.6px', margin: 0 }}>
-              Appointments
+              {t('appointments.title')}
             </h1>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, marginLeft: 52 }}>
             <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>{formatLongDate(selectedDate)}</span>
             {isToday(selectedDate) && (
-              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', color: '#4361ee', background: '#eef1ff', padding: '2px 9px', borderRadius: 20, textTransform: 'uppercase' }}>Today</span>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', color: '#4361ee', background: '#eef1ff', padding: '2px 9px', borderRadius: 20, textTransform: 'uppercase' }}>{t('appointments.today')}</span>
             )}
             {totalAppts > 0 && (
               <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: 'white', border: '1.5px solid #e2e8f0', padding: '2px 9px', borderRadius: 20 }}>
-                {totalAppts} {totalAppts === 1 ? 'appointment' : 'appointments'}
+                {t('appointments.count', { count: totalAppts })}
               </span>
             )}
           </div>
@@ -437,7 +439,7 @@ export default function AppointmentsPage() {
           {/* CTA */}
           <button className="cta-btn" onClick={() => handleTimeSlotClick('09:00')}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            Schedule
+            {t('appointments.schedule')}
           </button>
         </div>
       </div>
@@ -446,7 +448,7 @@ export default function AppointmentsPage() {
       {(loadingSettings || loadingAppointments) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 18, padding: '11px 16px', background: 'white', borderRadius: 11, border: '1.5px solid #dde3f0', width: 'fit-content', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
           <div className="pdot" style={{ width: 8, height: 8, borderRadius: '50%', background: '#4361ee' }} />
-          <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>Loading schedule…</span>
+          <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>{t('appointments.loadingSchedule')}</span>
         </div>
       )}
 
@@ -457,11 +459,11 @@ export default function AppointmentsPage() {
           {/* Column header row */}
           <div style={{ display: 'flex', background: '#1a2547', borderBottom: '2px solid #eef0f8' }}>
             <div style={{ width: 88, flexShrink: 0, padding: '13px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>TIME</span>
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>{t('appointments.time')}</span>
             </div>
             <div style={{ flex: 1, padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: '#64748b', textTransform: 'uppercase' }}>PATIENT SLOTS</span>
-              {totalAppts > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: '#4361ee', background: '#eef1ff', padding: '2px 8px', borderRadius: 10, letterSpacing: '0.05em' }}>{totalAppts} BOOKED</span>}
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: '#64748b', textTransform: 'uppercase' }}>{t('appointments.patientSlots')}</span>
+              {totalAppts > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: '#4361ee', background: '#eef1ff', padding: '2px 8px', borderRadius: 10, letterSpacing: '0.05em' }}>{t('appointments.booked', { count: totalAppts })}</span>}
             </div>
           </div>
 
@@ -500,7 +502,7 @@ export default function AppointmentsPage() {
                 >
                   {slotApps.length === 0 ? (
                     <div onClick={() => handleTimeSlotClick(time)} style={{ flex: 1, display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 6 }}>
-                      <span style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>Available — click to schedule</span>
+                      <span style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>{t('appointments.available')}</span>
                     </div>
                   ) : (
                     <>
@@ -542,7 +544,7 @@ export default function AppointmentsPage() {
                         className="ts-add"
                         onClick={(e: MouseEvent) => { e.stopPropagation(); handleTimeSlotClick(time) }}
                         style={{ fontSize: 11, fontWeight: 700, color: '#4361ee', background: '#eef1ff', border: '1.5px dashed #c7d2fe', padding: '9px 14px', borderRadius: 11, cursor: 'pointer', opacity: 0, transform: 'scale(0.9)', transition: 'all 0.18s', fontFamily: 'inherit' }}
-                      >+ Add</button>
+                      >{t('appointments.add')}</button>
                     </>
                   )}
                 </div>
@@ -554,7 +556,7 @@ export default function AppointmentsPage() {
 
       {/* ── Appointment Details Modal ─────────────────────────────────── */}
       {selectedAppointmentId && (
-        <ModalCard onClose={() => setSelectedAppointmentId(null)} title="Appointment Details" maxWidth={450}>
+        <ModalCard onClose={() => setSelectedAppointmentId(null)} title={t('appointments.detailsTitle')} maxWidth={450}>
           {loadingDetails ? (
             <div style={{ padding: '36px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#f1f5f9' }} />
@@ -581,8 +583,8 @@ export default function AppointmentsPage() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                 {[
-                  { label: 'Doctor', value: `Dr. ${appointmentDetails.doctor?.username}` },
-                  { label: 'Type', value: appointmentDetails.appointment_type?.name || 'General' },
+                  { label: t('appointments.doctor'), value: `Dr. ${appointmentDetails.doctor?.username}` },
+                  { label: t('appointments.type'), value: appointmentDetails.appointment_type?.name || t('appointments.general') },
                 ].map(({ label, value }) => (
                   <div key={label} style={{ background: '#f8fafc', borderRadius: 12, padding: '13px 15px' }}>
                     <FieldLabel>{label}</FieldLabel>
@@ -592,14 +594,14 @@ export default function AppointmentsPage() {
               </div>
 
               <div style={{ background: '#f8fafc', borderRadius: 12, padding: '13px 15px', marginBottom: 14 }}>
-                <FieldLabel>Date &amp; Time</FieldLabel>
+                <FieldLabel>{t('appointments.dateTime')}</FieldLabel>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
                   {new Date(appointmentDetails.appointment_time).toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
 
               <div style={{ marginBottom: 22 }}>
-                <FieldLabel>Status</FieldLabel>
+                <FieldLabel>{t('settings.colStatus')}</FieldLabel>
                 <div style={{ position: 'relative' }}>
                   <select
                     value={appointmentDetails.status}
@@ -623,44 +625,44 @@ export default function AppointmentsPage() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTop: '1.5px solid #f0f2f8' }}>
-                <button className="danger-btn" onClick={() => { if (confirm('Delete this appointment?')) { remove.mutate(appointmentDetails.id); setSelectedAppointmentId(null) } }}>
-                  Delete
+                <button className="danger-btn" onClick={() => { if (confirm(t('appointments.deletePrompt'))) { remove.mutate(appointmentDetails.id); setSelectedAppointmentId(null) } }}>
+                  {t('common.delete')}
                 </button>
-                <button className="ghost-btn" onClick={() => setSelectedAppointmentId(null)}>Done</button>
+                <button className="ghost-btn" onClick={() => setSelectedAppointmentId(null)}>{t('common.done')}</button>
               </div>
             </>
           ) : (
-            <p style={{ color: '#ef4444', textAlign: 'center', padding: '32px 0', fontWeight: 500 }}>Could not load appointment details.</p>
+            <p style={{ color: '#ef4444', textAlign: 'center', padding: '32px 0', fontWeight: 500 }}>{t('appointments.couldNotLoad')}</p>
           )}
         </ModalCard>
       )}
 
       {/* ── Schedule Appointment Modal ────────────────────────────────── */}
       {showForm && (
-        <ModalCard onClose={resetScheduleForm} title="Schedule Appointment" maxWidth={530}>
+        <ModalCard onClose={resetScheduleForm} title={t('appointments.scheduleTitle')} maxWidth={530}>
           {/* Step 1: Search patient */}
           {!selectedPatient && !showCreatePatient && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <FieldLabel>Search Patient</FieldLabel>
+                <FieldLabel>{t('appointments.searchPatient')}</FieldLabel>
                 <button
                   type="button"
                   onClick={() => setShowCreatePatient(true)}
                   style={{ fontSize: 11, fontWeight: 700, color: '#4361ee', background: '#eef1ff', border: 'none', cursor: 'pointer', padding: '5px 12px', borderRadius: 8, fontFamily: 'inherit' }}
-                >+ New Patient</button>
+                >{t('appointments.newPatientBtn')}</button>
               </div>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Enter name or contact number…"
+                placeholder={t('appointments.searchPlaceholder')}
                 className="appt-input"
                 style={{ marginBottom: 8 }}
               />
               {loadingPatients && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0' }}>
                   <div className="pdot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#4361ee' }} />
-                  <span style={{ fontSize: 12, color: '#94a3b8' }}>Searching…</span>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{t('appointments.searching')}</span>
                 </div>
               )}
               {searchQuery && !loadingPatients && patients && (
@@ -676,8 +678,8 @@ export default function AppointmentsPage() {
                   )) : (
                     <div style={{ padding: '28px 20px', textAlign: 'center' }}>
                       <div style={{ fontSize: 30, marginBottom: 10 }}>🔍</div>
-                      <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600, marginBottom: 14 }}>No patients found</div>
-                      <button type="button" onClick={() => setShowCreatePatient(true)} className="cta-btn" style={{ margin: '0 auto' }}>+ Create New Patient</button>
+                      <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600, marginBottom: 14 }}>{t('appointments.noneFound')}</div>
+                      <button type="button" onClick={() => setShowCreatePatient(true)} className="cta-btn" style={{ margin: '0 auto' }}>{t('appointments.createNewPatient')}</button>
                     </div>
                   )}
                 </div>
@@ -689,16 +691,16 @@ export default function AppointmentsPage() {
           {showCreatePatient && !selectedPatient && (
             <div style={{ background: '#f8fafc', borderRadius: 15, border: '1.5px solid #dde3f0', padding: '18px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 13, borderBottom: '1.5px solid #e2e8f0' }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>New Patient Details</div>
-                <button type="button" onClick={() => setShowCreatePatient(false)} style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>← Back</button>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{t('appointments.newPatientDetails')}</div>
+                <button type="button" onClick={() => setShowCreatePatient(false)} style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>{t('appointments.backShort')}</button>
               </div>
               <form onSubmit={handleCreatePatient}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {([
-                    { label: 'First Name *', key: 'first_name', required: true },
-                    { label: 'Last Name *', key: 'last_name', required: true },
-                    { label: 'Contact Number *', key: 'contact_number', required: true },
-                    { label: 'Date of Birth *', key: 'dob', type: 'date', required: true },
+                    { label: t('appointments.firstNameReq'), key: 'first_name', required: true },
+                    { label: t('appointments.lastNameReq'), key: 'last_name', required: true },
+                    { label: t('appointments.contactNumberReq'), key: 'contact_number', required: true },
+                    { label: t('appointments.dobReq'), key: 'dob', type: 'date', required: true },
                   ] as { label: string; key: NewPatientTextField; type?: string; required?: boolean }[]).map(({ label, key, type, required }) => (
                     <div key={key}>
                       <FieldLabel>{label}</FieldLabel>
@@ -706,39 +708,39 @@ export default function AppointmentsPage() {
                     </div>
                   ))}
                   <div>
-                    <FieldLabel>Gender *</FieldLabel>
+                    <FieldLabel>{t('appointments.genderReq')}</FieldLabel>
                     <div style={{ position: 'relative' }}>
                       <select value={patientForm.gender} onChange={(e) => setPatientForm({ ...patientForm, gender: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px', cursor: 'pointer', paddingRight: 30 }}>
-                        <option>Male</option><option>Female</option><option>Other</option>
+                        <option value="Male">{t('gender.male')}</option><option value="Female">{t('gender.female')}</option><option value="Other">{t('gender.other')}</option>
                       </select>
                       <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                     </div>
                   </div>
                   <div>
-                    <FieldLabel>Blood Group</FieldLabel>
+                    <FieldLabel>{t('appointments.bloodGroup')}</FieldLabel>
                     <input value={patientForm.blood_group} onChange={(e) => setPatientForm({ ...patientForm, blood_group: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
                   </div>
                   <div>
-                    <FieldLabel>Email</FieldLabel>
+                    <FieldLabel>{t('appointments.email')}</FieldLabel>
                     <input type="email" value={patientForm.email} onChange={(e) => setPatientForm({ ...patientForm, email: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
                   </div>
                   <div>
-                    <FieldLabel>Emergency Contact</FieldLabel>
+                    <FieldLabel>{t('appointments.emergencyContact')}</FieldLabel>
                     <input value={patientForm.emergency_contact} onChange={(e) => setPatientForm({ ...patientForm, emergency_contact: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
                   </div>
                   <div>
-                    <FieldLabel>Emergency Phone</FieldLabel>
+                    <FieldLabel>{t('appointments.emergencyPhone')}</FieldLabel>
                     <input value={patientForm.emergency_phone} onChange={(e) => setPatientForm({ ...patientForm, emergency_phone: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
                   </div>
                   <div style={{ gridColumn: 'span 2' }}>
-                    <FieldLabel>Address</FieldLabel>
+                    <FieldLabel>{t('appointments.address')}</FieldLabel>
                     <input value={patientForm.address} onChange={(e) => setPatientForm({ ...patientForm, address: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16, paddingTop: 13, borderTop: '1.5px solid #e2e8f0' }}>
-                  <button type="button" onClick={() => setShowCreatePatient(false)} className="ghost-btn" style={{ fontSize: 12 }}>Cancel</button>
+                  <button type="button" onClick={() => setShowCreatePatient(false)} className="ghost-btn" style={{ fontSize: 12 }}>{t('common.cancel')}</button>
                   <button type="submit" disabled={createPatientMut.isPending} className="cta-btn" style={{ opacity: createPatientMut.isPending ? 0.65 : 1 }}>
-                    {createPatientMut.isPending ? 'Saving…' : 'Save Patient'}
+                    {createPatientMut.isPending ? t('common.saving') : t('patients.savePatient')}
                   </button>
                 </div>
               </form>
@@ -752,18 +754,18 @@ export default function AppointmentsPage() {
               <div style={{ background: 'linear-gradient(135deg, #f0f4ff, #f5f0ff)', border: '1.5px solid #dde3ff', borderRadius: 15, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 13 }}>
                 <Avatar first={selectedPatient.first_name} last={selectedPatient.last_name} size={44} fontSize={15} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#7c3aed', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 2 }}>Selected Patient</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#7c3aed', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 2 }}>{t('appointments.selectedPatient')}</div>
                   <div style={{ fontSize: 15, fontWeight: 800, color: '#1e1b4b' }}>{selectedPatient.first_name} {selectedPatient.last_name}</div>
                   <div style={{ fontSize: 12, color: '#6d28d9' }}>{selectedPatient.contact_number}</div>
                 </div>
-                <button type="button" onClick={() => { setSelectedPatient(null); setForm((f) => ({ ...f, patient_id: '' })) }} style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: 'white', border: '1.5px solid #c4b5fd', padding: '6px 13px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit' }}>Change</button>
+                <button type="button" onClick={() => { setSelectedPatient(null); setForm((f) => ({ ...f, patient_id: '' })) }} style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: 'white', border: '1.5px solid #c4b5fd', padding: '6px 13px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit' }}>{t('appointments.change')}</button>
               </div>
 
               <div>
-                <FieldLabel>Doctor</FieldLabel>
+                <FieldLabel>{t('appointments.doctor')}</FieldLabel>
                 <div style={{ position: 'relative' }}>
                   <select required value={form.doctor_id} onChange={(e) => setForm({ ...form, doctor_id: e.target.value })} className="appt-input" style={{ cursor: 'pointer', paddingRight: 40 }}>
-                    <option value="">Select doctor…</option>
+                    <option value="">{t('appointments.selectDoctor')}</option>
                     {doctors?.map((d) => <option key={d.id} value={d.id}>Dr. {d.username}</option>)}
                   </select>
                   <svg style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
@@ -772,17 +774,17 @@ export default function AppointmentsPage() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div>
-                  <FieldLabel>Appointment Type</FieldLabel>
+                  <FieldLabel>{t('appointments.appointmentType')}</FieldLabel>
                   <div style={{ position: 'relative' }}>
                     <select required value={form.appointment_type_id} onChange={(e) => setForm({ ...form, appointment_type_id: e.target.value })} className="appt-input" style={{ cursor: 'pointer', paddingRight: 30 }}>
-                      <option value="">Select type…</option>
+                      <option value="">{t('appointments.selectType')}</option>
                       {types?.map((t) => <option key={t.id} value={t.id}>{t.name} (₹{t.rate})</option>)}
                     </select>
                     <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                   </div>
                 </div>
                 <div>
-                  <FieldLabel>Status</FieldLabel>
+                  <FieldLabel>{t('settings.colStatus')}</FieldLabel>
                   <div style={{ position: 'relative' }}>
                     <select required value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="appt-input" style={{ cursor: 'pointer', paddingRight: 30, color: getStatusColor(form.status), fontWeight: 700 }}>
                       {statuses?.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
@@ -793,14 +795,14 @@ export default function AppointmentsPage() {
               </div>
 
               <div>
-                <FieldLabel>Date &amp; Time</FieldLabel>
+                <FieldLabel>{t('appointments.dateTimeField')}</FieldLabel>
                 <input type="datetime-local" required value={form.appointment_time} onChange={(e) => setForm({ ...form, appointment_time: e.target.value })} className="appt-input" />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 16, borderTop: '1.5px solid #f0f2f8' }}>
-                <button type="button" onClick={resetScheduleForm} className="ghost-btn">Cancel</button>
+                <button type="button" onClick={resetScheduleForm} className="ghost-btn">{t('common.cancel')}</button>
                 <button type="submit" disabled={create.isPending} className="cta-btn" style={{ opacity: create.isPending ? 0.65 : 1 }}>
-                  {create.isPending ? 'Saving…' : 'Schedule Appointment'}
+                  {create.isPending ? t('common.saving') : t('appointments.scheduleAppointment')}
                 </button>
               </div>
             </form>

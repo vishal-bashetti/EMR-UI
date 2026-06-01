@@ -1,15 +1,17 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import useAuthStore from '../store/authStore'
 import { useMe } from '../hooks/useUsers'
 import { Icons } from './Icons'
+import LanguageSwitcher from './LanguageSwitcher'
 
-const navItems: { to: string; label: string; icon: ReactNode }[] = [
-  { to: '/dashboard', label: 'Dashboard', icon: Icons.dashboard },
-  { to: '/patients', label: 'Patients', icon: Icons.patients },
-  { to: '/appointments', label: 'Appointments', icon: Icons.appointments },
-  { to: '/billing', label: 'Billing', icon: Icons.billing },
-  { to: '/settings', label: 'Settings', icon: Icons.settings },
+const navItems: { to: string; key: string; icon: ReactNode }[] = [
+  { to: '/dashboard', key: 'nav.dashboard', icon: Icons.dashboard },
+  { to: '/patients', key: 'nav.patients', icon: Icons.patients },
+  { to: '/appointments', key: 'nav.appointments', icon: Icons.appointments },
+  { to: '/billing', key: 'nav.billing', icon: Icons.billing },
+  { to: '/settings', key: 'nav.settings', icon: Icons.settings },
 ]
 
 export function Avatar({ name, size = 'md' }: { name?: string; size?: 'sm' | 'md' }) {
@@ -25,6 +27,7 @@ export function Avatar({ name, size = 'md' }: { name?: string; size?: 'sm' | 'md
 }
 
 export default function Layout() {
+  const { t } = useTranslation()
   const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
   const { data: me } = useMe()
@@ -45,16 +48,16 @@ export default function Layout() {
               {Icons.heartbeat}
             </div>
             <div>
-              <p className="text-white font-bold text-base leading-none">MedEMR</p>
-              <p className="text-slate-400 text-[10px] mt-0.5 font-medium tracking-wide uppercase">Clinical Suite</p>
+              <p className="text-white font-bold text-base leading-none">{t('common.appName')}</p>
+              <p className="text-slate-400 text-[10px] mt-0.5 font-medium tracking-wide uppercase">{t('common.tagline')}</p>
             </div>
           </div>
         </div>
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-0.5">
-          <p className="text-slate-500 text-[10px] font-semibold tracking-widest uppercase px-3 mb-3">Main Menu</p>
-          {navItems.map(({ to, label, icon }) => (
+          <p className="text-slate-500 text-[10px] font-semibold tracking-widest uppercase px-3 mb-3">{t('nav.mainMenu')}</p>
+          {navItems.map(({ to, key, icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -67,13 +70,14 @@ export default function Layout() {
               }
             >
               {icon}
-              {label}
+              {t(key)}
             </NavLink>
           ))}
         </nav>
 
         {/* User + logout */}
         <div className="px-3 pb-4 border-t border-slate-700/60 pt-4 space-y-1">
+          <LanguageSwitcher />
           {me && (
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
               <Avatar name={me.username} />
@@ -88,7 +92,7 @@ export default function Layout() {
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-red-400 transition-all duration-150"
           >
             {Icons.logout}
-            Sign out
+            {t('nav.signOut')}
           </button>
         </div>
       </aside>

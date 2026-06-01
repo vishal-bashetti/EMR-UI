@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
 import { usePatient } from '../hooks/usePatients'
 import { useVitalConfigs, useCreateVisit } from '../hooks/useVisits'
@@ -44,6 +45,7 @@ function AddRowButton({ onClick, label }: { onClick: () => void; label: string }
 }
 
 export default function NewVisitPage() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -165,8 +167,8 @@ export default function NewVisitPage() {
   if (!patientId || !doctorId) {
     return (
       <div className="p-8 flex flex-col items-center justify-center h-full text-slate-400">
-        <p className="text-sm">Missing patient or doctor information.</p>
-        <button onClick={() => navigate(-1)} className="mt-3 text-blue-600 text-sm">Go back</button>
+        <p className="text-sm">{t('visit.missingInfo')}</p>
+        <button onClick={() => navigate(-1)} className="mt-3 text-blue-600 text-sm">{t('visit.goBack')}</button>
       </div>
     )
   }
@@ -181,11 +183,11 @@ export default function NewVisitPage() {
           onClick={() => navigate(-1)}
           className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 mb-3 transition-colors"
         >
-          {Icons.arrowLeft} Back
+          {Icons.arrowLeft} {t('common.back')}
         </button>
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Record Visit</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{t('visit.recordVisit')}</h1>
             {patient && (
               <p className="text-sm text-slate-400 mt-0.5">
                 {patientName} &middot; {patient.dob} &middot; {patient.gender}
@@ -206,16 +208,16 @@ export default function NewVisitPage() {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
                 </svg>
               ) : Icons.arrowLeft}
-              Load Last Visit
+              {t('visit.loadLastVisit')}
             </button>
             {carryStatus === 'loaded' && (
-              <p className="text-xs text-emerald-600 font-medium">Previous visit loaded</p>
+              <p className="text-xs text-emerald-600 font-medium">{t('visit.previousLoaded')}</p>
             )}
             {carryStatus === 'none' && (
-              <p className="text-xs text-slate-400">No previous visits found</p>
+              <p className="text-xs text-slate-400">{t('visit.noPrevious')}</p>
             )}
             {carryStatus === 'error' && (
-              <p className="text-xs text-red-500">Could not load last visit</p>
+              <p className="text-xs text-red-500">{t('visit.couldNotLoadLast')}</p>
             )}
           </div>
         </div>
@@ -223,44 +225,44 @@ export default function NewVisitPage() {
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Visit Overview */}
-        <SectionCard title="Visit Overview" icon={Icons.stethoscope}>
+        <SectionCard title={t('visit.overview')} icon={Icons.stethoscope}>
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                Reason for Visit
+                {t('visit.reason')}
               </label>
               <input
                 className={inputCls}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Chief reason for this visit…"
+                placeholder={t('visit.reasonPlaceholder')}
               />
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notes</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('visit.notes')}</label>
               <textarea
                 className={`${inputCls} min-h-[80px] resize-y`}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Clinical history, observations…"
+                placeholder={t('visit.notesPlaceholder')}
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Quick Notes</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('visit.quickNotes')}</label>
               <textarea
                 className={`${inputCls} min-h-[70px] resize-y`}
                 value={quickNotes}
                 onChange={(e) => setQuickNotes(e.target.value)}
-                placeholder="Brief summary for quick reference…"
+                placeholder={t('visit.quickNotesPlaceholder')}
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Advice</label>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">{t('visit.advice')}</label>
               <textarea
                 className={`${inputCls} min-h-[70px] resize-y`}
                 value={advice}
                 onChange={(e) => setAdvice(e.target.value)}
-                placeholder="Diet, activity, follow-up instructions…"
+                placeholder={t('visit.advicePlaceholder')}
               />
             </div>
           </div>
@@ -268,7 +270,7 @@ export default function NewVisitPage() {
 
         {/* Vitals */}
         {vitalConfigs && vitalConfigs.length > 0 && (
-          <SectionCard title="Vitals" icon={Icons.heartbeat}>
+          <SectionCard title={t('visit.vitals')} icon={Icons.heartbeat}>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {vitalConfigs.map((vc) => (
                 <div key={vc.id}>
@@ -290,13 +292,13 @@ export default function NewVisitPage() {
         )}
 
         {/* Complaints */}
-        <SectionCard title="Chief Complaints" icon={Icons.clipboard}>
+        <SectionCard title={t('visit.complaints')} icon={Icons.clipboard}>
           {complaints.length > 0 && (
             <div className="mb-1 space-y-2">
               <div className="grid grid-cols-[1fr_140px_120px_24px] gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Complaint</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">From Date</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Duration</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.complaint')}</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.fromDate')}</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.duration')}</span>
                 <span />
               </div>
               {complaints.map((c, i) => (
@@ -305,7 +307,7 @@ export default function NewVisitPage() {
                     className={`${smallInputCls} w-full`}
                     value={c.complaint}
                     onChange={(e) => updateComplaint(i, 'complaint', e.target.value)}
-                    placeholder="e.g. Headache"
+                    placeholder={t('visit.complaintPlaceholder')}
                   />
                   <input
                     className={`${smallInputCls} w-full`}
@@ -317,7 +319,7 @@ export default function NewVisitPage() {
                     className={`${smallInputCls} w-full`}
                     value={c.duration}
                     onChange={(e) => updateComplaint(i, 'duration', e.target.value)}
-                    placeholder="e.g. 3 days"
+                    placeholder={t('visit.durationPlaceholder')}
                   />
                   <button
                     type="button"
@@ -331,18 +333,18 @@ export default function NewVisitPage() {
             </div>
           )}
           {complaints.length === 0 && (
-            <p className="text-sm text-slate-400 mb-1">No complaints added yet.</p>
+            <p className="text-sm text-slate-400 mb-1">{t('visit.noComplaints')}</p>
           )}
-          <AddRowButton onClick={addComplaint} label="Add Complaint" />
+          <AddRowButton onClick={addComplaint} label={t('visit.addComplaint')} />
         </SectionCard>
 
         {/* Diagnoses */}
-        <SectionCard title="Diagnoses" icon={Icons.diagnosis}>
+        <SectionCard title={t('visit.diagnoses')} icon={Icons.diagnosis}>
           {diagnoses.length > 0 && (
             <div className="mb-1 space-y-2">
               <div className="grid grid-cols-[1fr_160px_24px] gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Diagnosis</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Date</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.diagnosis')}</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.date')}</span>
                 <span />
               </div>
               {diagnoses.map((d, i) => (
@@ -351,7 +353,7 @@ export default function NewVisitPage() {
                     className={`${smallInputCls} w-full`}
                     value={d.diagnosis}
                     onChange={(e) => updateDiagnosis(i, 'diagnosis', e.target.value)}
-                    placeholder="e.g. Hypertension"
+                    placeholder={t('visit.diagnosisPlaceholder')}
                   />
                   <input
                     className={`${smallInputCls} w-full`}
@@ -366,31 +368,31 @@ export default function NewVisitPage() {
               ))}
             </div>
           )}
-          {diagnoses.length === 0 && <p className="text-sm text-slate-400 mb-1">No diagnoses added yet.</p>}
-          <AddRowButton onClick={addDiagnosis} label="Add Diagnosis" />
+          {diagnoses.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noDiagnoses')}</p>}
+          <AddRowButton onClick={addDiagnosis} label={t('visit.addDiagnosis')} />
         </SectionCard>
 
         {/* Treatments */}
-        <SectionCard title="Treatments" icon={Icons.treatment}>
+        <SectionCard title={t('visit.treatments')} icon={Icons.treatment}>
           {treatments.length > 0 && (
             <div className="mb-1 space-y-2">
               <div className="grid grid-cols-[1fr_160px_24px] gap-2 mb-1">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Treatment</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Due Date</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.treatment')}</span>
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{t('visit.dueDate')}</span>
                 <span />
               </div>
-              {treatments.map((t, i) => (
+              {treatments.map((tr, i) => (
                 <div key={i} className="grid grid-cols-[1fr_160px_24px] gap-2 items-center">
                   <input
                     className={`${smallInputCls} w-full`}
-                    value={t.treatment}
+                    value={tr.treatment}
                     onChange={(e) => updateTreatment(i, 'treatment', e.target.value)}
-                    placeholder="e.g. Physical therapy"
+                    placeholder={t('visit.treatmentPlaceholder')}
                   />
                   <input
                     className={`${smallInputCls} w-full`}
                     type="date"
-                    value={t.due_date}
+                    value={tr.due_date}
                     onChange={(e) => updateTreatment(i, 'due_date', e.target.value)}
                   />
                   <button type="button" onClick={() => removeTreatment(i)} className="text-slate-300 hover:text-red-500 transition-colors">
@@ -400,12 +402,12 @@ export default function NewVisitPage() {
               ))}
             </div>
           )}
-          {treatments.length === 0 && <p className="text-sm text-slate-400 mb-1">No treatments added yet.</p>}
-          <AddRowButton onClick={addTreatment} label="Add Treatment" />
+          {treatments.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noTreatments')}</p>}
+          <AddRowButton onClick={addTreatment} label={t('visit.addTreatment')} />
         </SectionCard>
 
         {/* Lab Orders */}
-        <SectionCard title="Lab Orders" icon={Icons.flask}>
+        <SectionCard title={t('visit.labOrders')} icon={Icons.flask}>
           {labCatalog && labCatalog.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {labCatalog.map((item) => (
@@ -433,19 +435,19 @@ export default function NewVisitPage() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-400">No lab tests in catalog.</p>
+            <p className="text-sm text-slate-400">{t('visit.noLabTests')}</p>
           )}
         </SectionCard>
 
         {/* Prescriptions */}
-        <SectionCard title="Prescriptions" icon={Icons.pill}>
+        <SectionCard title={t('visit.prescriptions')} icon={Icons.pill}>
           <div ref={drugSearchRef} className="relative mb-4">
             <input
               className={inputCls}
               value={drugSearch}
               onChange={(e) => { setDrugSearch(e.target.value); setShowDrugDropdown(true) }}
               onFocus={() => drugSearch.length >= 1 && setShowDrugDropdown(true)}
-              placeholder="Search drug by name or generic name…"
+              placeholder={t('visit.drugSearchPlaceholder')}
             />
             {showDrugDropdown && drugResults && drugResults.length > 0 && (
               <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
@@ -471,7 +473,7 @@ export default function NewVisitPage() {
             )}
             {showDrugDropdown && drugSearch.length >= 1 && drugResults?.length === 0 && (
               <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm text-slate-400">
-                No drugs found for "{drugSearch}"
+                {t('visit.noDrugsFound', { query: drugSearch })}
               </div>
             )}
           </div>
@@ -481,8 +483,8 @@ export default function NewVisitPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    {['Drug', 'Morning', 'Afternoon', 'Evening', 'Night', 'When', 'Details', ''].map((h) => (
-                      <th key={h} className="text-left py-2 px-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
+                    {[t('visit.colDrug'), t('visit.colMorning'), t('visit.colAfternoon'), t('visit.colEvening'), t('visit.colNight'), t('visit.colWhen'), t('visit.colDetails'), ''].map((h, i) => (
+                      <th key={i} className="text-left py-2 px-2 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
                         {h}
                       </th>
                     ))}
@@ -508,12 +510,12 @@ export default function NewVisitPage() {
                           value={p.when}
                           onChange={(e) => updatePrescription(i, 'when', e.target.value)}
                         >
-                          <option value="">—</option>
-                          <option>Before food</option>
-                          <option>After food</option>
-                          <option>With food</option>
-                          <option>At bedtime</option>
-                          <option>SOS</option>
+                          <option value="">{t('common.dash')}</option>
+                          <option value="Before food">{t('visit.whenBeforeFood')}</option>
+                          <option value="After food">{t('visit.whenAfterFood')}</option>
+                          <option value="With food">{t('visit.whenWithFood')}</option>
+                          <option value="At bedtime">{t('visit.whenAtBedtime')}</option>
+                          <option value="SOS">{t('visit.whenSos')}</option>
                         </select>
                       </td>
                       <td className="py-2 px-1">
@@ -521,7 +523,7 @@ export default function NewVisitPage() {
                           className="w-36 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                           value={p.details}
                           onChange={(e) => updatePrescription(i, 'details', e.target.value)}
-                          placeholder="Additional details…"
+                          placeholder={t('visit.detailsPlaceholder')}
                         />
                       </td>
                       <td className="py-2 px-1">
@@ -540,7 +542,7 @@ export default function NewVisitPage() {
             </div>
           ) : (
             <p className="text-sm text-slate-400 text-center py-3">
-              Search and select drugs above to add to the prescription.
+              {t('visit.prescriptionsHint')}
             </p>
           )}
         </SectionCard>
@@ -548,7 +550,7 @@ export default function NewVisitPage() {
         {/* Error */}
         {createVisit.isError && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
-            Failed to save visit. Please check your inputs and try again.
+            {t('visit.failedSave')}
           </div>
         )}
 
@@ -559,14 +561,14 @@ export default function NewVisitPage() {
             onClick={() => navigate(-1)}
             className="px-6 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
             disabled={createVisit.isPending}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
           >
-            {createVisit.isPending ? 'Saving…' : 'Save Visit'}
+            {createVisit.isPending ? t('common.saving') : t('visit.saveVisit')}
           </button>
         </div>
       </form>
