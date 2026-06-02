@@ -2,12 +2,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getLabCatalog,
   createLabCatalogItem,
+  getComboCatalog,
+  orderCombo,
+  getLabQueue,
   getLabResults,
   getLabResultsHistory,
   getLatestLabResults,
+  createLabResult,
   updateLabResult,
+  getLabResultsByDate,
 } from '../api/labResults'
-import type { LabResultInput } from '../types'
+import type { LabResultInput, OrderComboPayload } from '../types'
 
 export const useLabCatalog = (query?: string) => useQuery({ 
   queryKey: ['labCatalog', query], 
@@ -22,6 +27,32 @@ export const useCreateLabCatalogItem = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['labCatalog'] }),
   })
 }
+
+export const useComboCatalog = (query?: string) => useQuery({
+  queryKey: ['comboCatalog', query],
+  queryFn: () => getComboCatalog(query),
+})
+
+export const useOrderCombo = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: orderCombo,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['labQueue'] }),
+  })
+}
+
+export const useCreateLabResult = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: createLabResult,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['labQueue'] }),
+  })
+}
+
+export const useLabQueue = (status?: string) => useQuery({
+  queryKey: ['labQueue', status],
+  queryFn: () => getLabQueue(status),
+})
 
 export const useLabResultsHistory = (patientId?: number, testName?: string, limit = 10) =>
   useQuery({
@@ -50,7 +81,15 @@ export const useUpdateLabResult = () => {
     mutationFn: ({ id, data }: { id: number; data: LabResultInput }) => updateLabResult(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['labResults'] })
+      qc.invalidateQueries({ queryKey: ['labQueue'] })
       qc.invalidateQueries({ queryKey: ['invoices'] })
     },
   })
 }
+
+export const useLabResultsByDate = (date?: string) =>
+  useQuery({
+    queryKey: ['labResultsByDate', date],
+    queryFn: () => getLabResultsByDate(date as string),
+    enabled: !!date,
+  })

@@ -11,6 +11,7 @@ const navItems: { to: string; key: string; icon: ReactNode }[] = [
   { to: '/patients', key: 'nav.patients', icon: Icons.patients },
   { to: '/appointments', key: 'nav.appointments', icon: Icons.appointments },
   { to: '/billing', key: 'nav.billing', icon: Icons.billing },
+  { to: '/labs', key: 'nav.labs', icon: Icons.flask }, // Uses translation key or fallback
   { to: '/settings', key: 'nav.settings', icon: Icons.settings },
 ]
 
@@ -38,9 +39,9 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-slate-50 overflow-hidden print:h-auto print:overflow-visible">
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 flex flex-col shrink-0">
+      <aside className="w-64 bg-slate-900 flex flex-col shrink-0 print:hidden">
         {/* Logo */}
         <div className="px-6 py-5 border-b border-slate-700/60">
           <div className="flex items-center gap-2.5">
@@ -57,7 +58,13 @@ export default function Layout() {
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-0.5">
           <p className="text-slate-500 text-[10px] font-semibold tracking-widest uppercase px-3 mb-3">{t('nav.mainMenu')}</p>
-          {navItems.map(({ to, key, icon }) => (
+          {navItems.filter(item => {
+            if (item.to === '/labs') {
+              const role = me?.role?.name?.toLowerCase() || ''
+              return role.includes('doctor') || role.includes('admin') || role.includes('lab technician')
+            }
+            return true
+          }).map(({ to, key, icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -70,7 +77,7 @@ export default function Layout() {
               }
             >
               {icon}
-              {t(key)}
+              {to === '/labs' ? 'Labs' : t(key)}
             </NavLink>
           ))}
         </nav>
@@ -98,7 +105,7 @@ export default function Layout() {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto print:overflow-visible">
         <Outlet />
       </main>
     </div>

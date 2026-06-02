@@ -10,6 +10,7 @@ import PatientDetailPage from './pages/PatientDetailPage'
 import NewVisitPage from './pages/NewVisitPage'
 import BillingPage from './pages/BillingPage'
 import SettingsPage from './pages/SettingsPage'
+import LabDashboardPage from './pages/LabDashboardPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="appointments" element={<AppointmentsPage />} />
             <Route path="visits/new" element={<NewVisitPage />} />
             <Route path="billing" element={<BillingPage />} />
+            <Route path="labs" element={<LabDashboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

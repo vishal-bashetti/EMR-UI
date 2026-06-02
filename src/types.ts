@@ -280,7 +280,28 @@ export interface LabCatalogItem {
   name: string
   description: string | null
   price: number
+  unit: string | null
+  min_value: number | null
+  max_value: number | null
   is_active: boolean
+}
+
+export interface LabComboCatalogItem {
+  id: number
+  name: string
+  description: string | null
+  price: number
+  is_active: boolean
+}
+
+export interface OrderComboPayload {
+  patient_id: number
+  combo_id: number
+}
+
+export interface LabQueueResponseItem {
+  lab_result: LabResult
+  patient: Patient
 }
 
 export interface LabCatalogInput {
@@ -304,6 +325,8 @@ export interface LabResult {
   cost: number | null
   ordered_by: number | null
   ordered_date: string
+  result_date?: string | null
+  patient?: Patient
 }
 
 export interface LabResultInput {
