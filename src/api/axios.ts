@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
+import { toast } from 'react-toastify'
 import type { TokenResponse } from '../types'
 
 const api: AxiosInstance = axios.create({
@@ -32,6 +33,18 @@ api.interceptors.response.use(
           window.location.href = '/login'
         }
       }
+    } else if (error.response?.status === 403) {
+      toast.error('User permission denied.')
+    } else if (error.response?.status === 404) {
+      toast.error('Resource not found.')
+    } else if (error.response?.status === 500) {
+      toast.error('An internal server error occurred.')
+    } else if (error.response?.data && (error.response.data as any).detail) {
+      toast.error(String((error.response.data as any).detail))
+    } else if (!error.response && error.request) {
+      toast.error('Network error. Please check your connection.')
+    } else {
+      toast.error(error.message || 'An unexpected error occurred.')
     }
     return Promise.reject(error)
   }

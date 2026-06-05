@@ -22,6 +22,7 @@ export interface User {
   is_active: boolean
   role_id: number | null
   role?: Role | null
+  signature_path?: string | null
 }
 
 export interface UserInput {
@@ -64,6 +65,7 @@ export interface Patient {
   address: string | null
   language: string | null
   is_active: number
+  opd_number?: string | null
 }
 
 export interface PatientInput {
@@ -78,6 +80,7 @@ export interface PatientInput {
   emergency_phone?: string
   address?: string
   language?: string
+  opd_number?: string
   is_active?: number
 }
 
@@ -247,13 +250,231 @@ export interface Encounter {
   advice?: string | null
 }
 
+export interface PrescriptionItem {
+  id?: number
+  prescription_id?: number
+  molecule?: string
+  name: string
+  morning: string
+  afternoon: string
+  evening: string
+  night: string
+  when: string
+  details: string
+}
+
+export interface Prescription {
+  id: number
+  patient_id: number
+  encounter_id: number
+  doctor_id: number
+  notes?: string
+  date_prescribed: string
+  items: PrescriptionItem[]
+}
+
 export interface VisitResponse {
   encounter: Encounter
   vitals: VitalEntry[]
   complaints: Complaint[]
   diagnoses: Diagnosis[]
   treatments: Treatment[]
-  prescriptions?: PrescriptionInput[]
+  prescriptions?: Prescription[]
+}
+
+export interface VisitPayload {
+  patient_id: number
+  doctor_id: number
+  appointment_id: number | null
+  status: string
+  reason: string | null
+  notes: string | null
+  quick_notes: string | null
+  advice: string | null
+  vitals: { vital_config_id: number; value: string }[]
+  complaints: Complaint[]
+  diagnoses: Diagnosis[]
+  treatments: Treatment[]
+  lab_test_catalogs: number[]
+  prescriptions: PrescriptionInput[]
+}
+
+// ─── Lab Tests & Catalog ──────────────────────────────────────────────────────
+
+export interface LabCatalogItem {
+  id: number
+  name: string
+  description: string | null
+  price: number
+  unit: string | null
+  min_value: number | null
+  max_value: number | null
+  is_active: boolean
+}
+
+export interface LabComboCatalogItem {
+  id: number
+  name: string
+  description: string | null
+  price: number
+  is_active: boolean
+}
+
+export interface OrderComboPayload {
+  patient_id: number
+  combo_id: number
+}
+
+export interface LabQueueResponseItem {
+  lab_result: LabResult
+  patient: Patient
+}
+
+export interface LabCatalogInput {
+  name: string
+  description?: string | null
+  price: number
+  is_active: boolean
+}
+
+export interface LabResult {
+  id: number
+  patient_id: number
+  encounter_id: number | null
+  catalog_id: number | null
+  test_name: string
+  result_value: string | null
+  unit: string | null
+  reference_range: string | null
+  status: string
+  notes: string | null
+  cost: number | null
+  ordered_by: number | null
+  ordered_date: string
+  result_date?: string | null
+  patient?: Patient
+}
+
+export interface LabResultInput {
+  test_name: string
+  result_value?: string
+  unit?: string
+  reference_range?: string
+  status: string
+  notes?: string
+  patient_id: number
+  encounter_id?: number | null
+  catalog_id?: number | null
+  cost?: number | null
+  ordered_by?: number | null
+}
+
+// ─── Drugs ───────────────────────────────────────────────────────────────────
+
+export interface Drug {
+  id: number
+  name: string
+  generic_name: string | null
+  form: string | null
+  strength: string | null
+  manufacturer: string | null
+  is_active: boolean
+}
+
+export interface DrugInput {
+  name: string
+  generic_name?: string
+  form?: string
+  strength?: string
+  manufacturer?: string
+  is_active: boolean
+}
+
+// ─── Live Queue (waiting-room TV display) ──────────────────────────────────────
+
+export interface QueueEntry {
+  appointment_id: number
+  patient_name: string
+  doctor_name: string
+  time: string
+  status: string
+}
+export interface VitalEntry {
+  id?: number
+  vital_config_id: number
+  value: string
+}
+
+export interface Complaint {
+  id?: number
+  complaint: string
+  from_date?: string
+  duration?: string
+}
+
+export interface Diagnosis {
+  id?: number
+  diagnosis: string
+  date?: string
+}
+
+export interface Treatment {
+  id?: number
+  treatment: string
+  due_date?: string
+}
+
+export interface PrescriptionInput {
+  name: string
+  morning: string
+  afternoon: string
+  evening: string
+  night: string
+  when: string
+  details: string
+}
+
+export interface Encounter {
+  id: number
+  visit_number: number
+  encounter_date: string
+  status: string
+  reason?: string | null
+  notes?: string | null
+  quick_notes?: string | null
+  advice?: string | null
+}
+
+export interface PrescriptionItem {
+  id?: number
+  prescription_id?: number
+  molecule?: string
+  name: string
+  morning: string
+  afternoon: string
+  evening: string
+  night: string
+  when: string
+  details: string
+}
+
+export interface Prescription {
+  id: number
+  patient_id: number
+  encounter_id: number
+  doctor_id: number
+  notes?: string
+  date_prescribed: string
+  items: PrescriptionItem[]
+}
+
+export interface VisitResponse {
+  encounter: Encounter
+  vitals: VitalEntry[]
+  complaints: Complaint[]
+  diagnoses: Diagnosis[]
+  treatments: Treatment[]
+  prescriptions?: Prescription[]
 }
 
 export interface VisitPayload {
@@ -377,4 +598,26 @@ export interface QueueEntry {
 export interface LiveQueue {
   ongoing: QueueEntry[]
   waiting: QueueEntry[]
+}
+
+export interface Clinic {
+  id: number;
+  name: string;
+  address: string;
+  support_email: string;
+  phone: string;
+  whatsapp: string;
+  website: string;
+  app_link: string;
+  logo_path: string;
+}
+
+export interface ClinicInput {
+  name: string;
+  address: string;
+  support_email: string;
+  phone: string;
+  whatsapp: string;
+  website: string;
+  app_link: string;
 }

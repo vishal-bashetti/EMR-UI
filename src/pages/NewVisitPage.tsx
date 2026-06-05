@@ -6,12 +6,14 @@ import { isAxiosError } from 'axios'
 import { usePatient } from '../hooks/usePatients'
 import { useMe } from '../hooks/useUsers'
 import { useVitalConfigs, useCreateVisit, useUpdateVisit } from '../hooks/useVisits'
-import { useAppointmentStatuses } from '../hooks/useAppointments'
+import { useAppointmentStatuses, useAppointments, useCreateAppointment, useUpdateAppointmentStatus } from '../hooks/useAppointments'
 import { useLabCatalog, useLatestLabResults } from '../hooks/useLabResults'
 import { useDrugs, useCreateDrug } from '../hooks/useDrugs'
-import { getLastVisit } from '../api/visits'
+import { getLastVisit, getVisitById } from '../api/visits'
 import { Icons } from '../components/Icons'
-import type { Drug, PrescriptionInput, VitalConfig, VisitPayload } from '../types'
+import { PrintableVisit } from '../components/PrintableVisit'
+import { useClinic } from '../hooks/useSettings'
+import type { Drug, PrescriptionInput, VitalConfig, VisitPayload, VisitResponse } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,12 +33,13 @@ const smallInputCls = 'border border-slate-200 rounded-lg px-2.5 py-2 text-xs te
 const labelCls = 'block text-xs font-semibold text-slate-600 mb-1.5'
 
 function FormSection({
-  id, title, icon, badge, children,
+  id, title, icon, badge, headerAction, children,
 }: {
   id: SectionKey
   title: string
   icon: ReactNode
   badge?: number
+  headerAction?: ReactNode
   children: ReactNode
 }) {
   return (
@@ -52,6 +55,7 @@ function FormSection({
         {badge !== undefined && badge > 0 && (
           <span className="ml-auto text-xs font-bold bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">{badge}</span>
         )}
+        {headerAction && <div className="ml-auto">{headerAction}</div>}
       </div>
       <div className="p-5">{children}</div>
     </section>
@@ -255,16 +259,26 @@ function VisitSidebar({
 
 function OverviewSection({
   status, reason, notes, quickNotes, advice, statuses,
-  onStatus, onReason, onNotes, onQuickNotes, onAdvice,
+  onStatus, onReason, onNotes, onQuickNotes, onAdvice, onPrint,
 }: {
   status: string; reason: string; notes: string; quickNotes: string; advice: string
   statuses?: { id: number; name: string }[]
   onStatus: (v: string) => void; onReason: (v: string) => void
   onNotes: (v: string) => void; onQuickNotes: (v: string) => void; onAdvice: (v: string) => void
+  onPrint?: () => void
 }) {
   const { t } = useTranslation()
   return (
-    <FormSection id="overview" title={t('visit.overview')} icon={Icons.stethoscope}>
+    <FormSection 
+      id="overview" 
+      title={t('visit.overview')} 
+      icon={Icons.stethoscope}
+      headerAction={onPrint && (
+        <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors print:hidden">
+          {Icons.download} Print Report
+        </button>
+      )}
+    >
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className={labelCls}>Visit Status</label>
@@ -453,7 +467,7 @@ function TreatmentsSection({
 
 function PrescriptionsSection({
   prescriptions, drugSearch, showDropdown, drugResults, drugSearchRef,
-  onSearchChange, onSearchFocus, onAddDrug, onCreateDrug, onRemove, onUpdate, onSaveToCatalog,
+  onSearchChange, onSearchFocus, onAddDrug, onCreateDrug, onRemove, onUpdate, onSaveToCatalog, onPrint
 }: {
   prescriptions: PrescriptionInput[]
   drugSearch: string
@@ -467,10 +481,21 @@ function PrescriptionsSection({
   onRemove: (i: number) => void
   onUpdate: (i: number, field: keyof PrescriptionInput, val: string) => void
   onSaveToCatalog: (name: string) => void
+  onPrint?: () => void
 }) {
   const { t } = useTranslation()
   return (
-    <FormSection id="prescriptions" title={t('visit.prescriptions')} icon={Icons.pill} badge={prescriptions.length || undefined}>
+    <FormSection 
+      id="prescriptions" 
+      title={t('visit.prescriptions')} 
+      icon={Icons.pill} 
+      badge={prescriptions.length || undefined}
+      headerAction={onPrint && (
+        <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-bold rounded-lg transition-colors print:hidden">
+          {Icons.download} Print Rx
+        </button>
+      )}
+    >
       {/* Drug search */}
       <div ref={drugSearchRef} className="relative mb-4">
         <input
@@ -485,13 +510,15 @@ function PrescriptionsSection({
             {drugResults.map(drug => (
               <button key={drug.id} type="button"
                 className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
-                onClick={() => onAddDrug(drug.name)}
+                onClick={() => onAddDrug(drug.strength ? `${drug.name} ${drug.strength}` : drug.name)}
               >
                 <div>
-                  <span className="font-semibold text-slate-800">{drug.name}</span>
+                  <span className="font-semibold text-slate-800">
+                    {drug.name} {drug.strength && <span className="font-normal text-slate-500 ml-1">{drug.strength}</span>}
+                  </span>
                   {drug.generic_name && <span className="text-slate-400 ml-2 text-xs">{drug.generic_name}</span>}
                 </div>
-                <span className="text-xs text-slate-400 shrink-0">{[drug.form, drug.strength].filter(Boolean).join(' · ')}</span>
+                <span className="text-xs text-slate-400 shrink-0">{drug.form || ''}</span>
               </button>
             ))}
           </div>
@@ -613,7 +640,7 @@ function LabSection({
           >
             <div className="flex items-center gap-2">
               <span className="w-5 h-5 flex items-center justify-center text-emerald-600">{Icons.flask}</span>
-              Last Lab Report · {new Date(lastLabReports[0].ordered_date).toLocaleDateString()} · {lastLabReports.length} test{lastLabReports.length > 1 ? 's' : ''}
+              Last Lab Report · {new Date(lastLabReports[0].ordered_date).toLocaleDateString('en-GB')} · {lastLabReports.length} test{lastLabReports.length > 1 ? 's' : ''}
             </div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`w-3.5 h-3.5 transition-transform ${showHistory ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
           </button>
@@ -702,8 +729,18 @@ export default function NewVisitPage() {
   const appointmentId = searchParams.get('appointment_id') ? Number(searchParams.get('appointment_id')) : null
 
   const { data: me } = useMe()
+  const { data: clinic } = useClinic()
   const doctorIdFromUrl = searchParams.get('doctor_id') ? Number(searchParams.get('doctor_id')) : null
   const doctorId = doctorIdFromUrl ?? me?.id ?? 0
+
+  const [printType, setPrintType] = useState<'prescription' | 'report' | null>(null)
+
+  const handlePrint = (type: 'prescription' | 'report') => {
+    setPrintType(type)
+    setTimeout(() => {
+      window.print()
+    }, 200)
+  }
 
   const { data: patient } = usePatient(patientId)
   const { data: vitalConfigs } = useVitalConfigs()
@@ -713,8 +750,30 @@ export default function NewVisitPage() {
   const updateVisit = useUpdateVisit()
   const createDrug = useCreateDrug()
 
+  const { data: patientAppointments, isLoading: appointmentsLoading } = useAppointments({ patient_id: patientId })
+  const createAppointment = useCreateAppointment()
+  const updateAppointmentStatus = useUpdateAppointmentStatus()
+
   // ── Form state ──
-  const [editingEncounterId, setEditingEncounterId] = useState<number | null>(null)
+  const [editingEncounterId, setEditingEncounterId] = useState<number | null>(() => {
+    const encId = searchParams.get('encounter_id')
+    if (encId) return parseInt(encId, 10)
+    return null
+  })
+
+  useEffect(() => {
+    if (appointmentId && patientAppointments) {
+      const app = patientAppointments.find(a => a.id === appointmentId)
+      if (app) {
+        if (app.status !== 'Ongoing' && app.status !== 'Completed' && app.status !== 'Cancelled' && app.status !== 'No Show') {
+          updateAppointmentStatus.mutate({ id: appointmentId, status: 'Ongoing' })
+          setStatus('Ongoing')
+        } else if (!editingEncounterId && app.status === 'Ongoing') {
+          setStatus('Ongoing')
+        }
+      }
+    }
+  }, [appointmentId, patientAppointments, editingEncounterId, updateAppointmentStatus])
   const [status, setStatus] = useState('Open')
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
@@ -727,16 +786,17 @@ export default function NewVisitPage() {
   const [selectedLabs, setSelectedLabs] = useState<LabItem[]>([])
   const [prescriptions, setPrescriptions] = useState<PrescriptionInput[]>([])
   const [saveError, setSaveError] = useState('')
+  const [showSaveModal, setShowSaveModal] = useState(false)
 
   // ── Carry-forward ──
   const [carryStatus, setCarryStatus] = useState<CarryStatus>(null)
-  const handleCarryForward = async () => {
+  const handleCarryForward = async (specificEncounterId?: number | any) => {
+    const encId = typeof specificEncounterId === 'number' ? specificEncounterId : undefined;
     setCarryStatus('loading')
     try {
-      const data = await getLastVisit(patientId)
+      const data = encId ? await getVisitById(encId) : await getLastVisit(patientId)
       const enc = data.encounter
-      if (enc.status !== 'Completed') setEditingEncounterId(enc.id)
-      setStatus(enc.status || 'Open')
+      if (encId) setStatus(enc.status || 'Open')
       setReason(enc.reason || '')
       setNotes(enc.notes || '')
       setQuickNotes(enc.quick_notes || '')
@@ -745,7 +805,7 @@ export default function NewVisitPage() {
       setComplaints(data.complaints.map(c => ({ complaint: c.complaint, from_date: c.from_date || '', duration: c.duration || '' })))
       setDiagnoses(data.diagnoses.map(d => ({ diagnosis: d.diagnosis, date: d.date || '' })))
       setTreatments(data.treatments.map(tr => ({ treatment: tr.treatment, due_date: tr.due_date || '' })))
-      setPrescriptions(data.prescriptions || [])
+      setPrescriptions(data.prescriptions?.flatMap(p => p.items as PrescriptionInput[]) || [])
       setCarryStatus('loaded')
     } catch (e) {
       setCarryStatus(isAxiosError(e) && e.response?.status === 404 ? 'none' : 'error')
@@ -753,9 +813,14 @@ export default function NewVisitPage() {
   }
 
   useEffect(() => {
-    if (searchParams.get('edit') === 'true') handleCarryForward()
+    const edit = searchParams.get('edit')
+    const encId = searchParams.get('encounter_id')
+    if (edit === 'true' || encId) {
+      handleCarryForward(encId ? parseInt(encId, 10) : undefined)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
 
   // ── Vital formula computation ──
   const lastComputedVitals = useRef<Record<number, string>>({})
@@ -875,14 +940,14 @@ export default function NewVisitPage() {
   }, [handleScroll])
 
   // ── Submit ──
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
+  const performSave = async (finalStatus: string) => {
+    setShowSaveModal(false)
     setSaveError('')
     const payload: VisitPayload = {
       patient_id: patientId,
       doctor_id: doctorId,
       appointment_id: appointmentId,
-      status,
+      status: finalStatus,
       reason: reason || null,
       notes: notes || null,
       quick_notes: quickNotes || null,
@@ -904,6 +969,111 @@ export default function NewVisitPage() {
     } catch (e) {
       setSaveError(isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || t('visit.failedSave')) : t('visit.failedSave'))
     }
+  }
+
+  const handleSave = (e: FormEvent) => {
+    e.preventDefault()
+    if (!appointmentId && !searchParams.get('edit')) {
+      setSaveError('An appointment must be selected for this visit.')
+      return
+    }
+    if (status !== 'Cancelled' && status !== 'No Show') {
+      setShowSaveModal(true)
+    } else {
+      performSave(status)
+    }
+  }
+
+  // ── Component Sub-render: Appointment Selector ──
+  const isEditing = searchParams.get('edit') === 'true'
+  if (!appointmentId && !isEditing && !appointmentsLoading) {
+    const pendingAppointments = patientAppointments?.filter(a => !['Completed', 'Cancelled', 'No Show'].includes(a.status)) || []
+    
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-lg font-bold text-slate-800">Select Appointment</h2>
+            <p className="text-xs text-slate-500 mt-1">Please select an existing appointment or create a walk-in appointment to start this visit.</p>
+          </div>
+          <div className="p-5 max-h-[60vh] overflow-y-auto">
+            {pendingAppointments.length > 0 ? (
+              <div className="space-y-2 mb-6">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Pending Appointments</p>
+                {pendingAppointments.map(app => (
+                  <button
+                    key={app.id}
+                    onClick={() => {
+                      const params = new URLSearchParams(searchParams)
+                      params.set('appointment_id', String(app.id))
+                      navigate(`?${params.toString()}`, { replace: true })
+                    }}
+                    className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all flex items-center justify-between group"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700">
+                        {new Date(app.appointment_time).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">Status: {app.status}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition-colors">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><polyline points="9 18 15 12 9 6"/></svg>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 mb-6">
+                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-400">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <p className="text-sm font-medium text-slate-600">No pending appointments today</p>
+                <p className="text-xs text-slate-400 mt-1">Create a new walk-in appointment to proceed.</p>
+              </div>
+            )}
+            
+            <button
+              type="button"
+              disabled={createAppointment.isPending}
+              onClick={() => {
+                createAppointment.mutate({
+                  patient_id: patientId,
+                  doctor_id: doctorId,
+                  appointment_type_id: null,
+                  appointment_time: new Date().toISOString(),
+                  status: 'Scheduled'
+                }, {
+                  onSuccess: (data) => {
+                    const params = new URLSearchParams(searchParams)
+                    params.set('appointment_id', String(data.id))
+                    navigate(`?${params.toString()}`, { replace: true })
+                  }
+                })
+              }}
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-blue-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {createAppointment.isPending ? (
+                <>
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Create Walk-in Appointment
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => navigate(-1)}
+              className="w-full mt-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-colors"
+            >
+              Cancel & Go Back
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   // ── Guard ──
@@ -928,6 +1098,22 @@ export default function NewVisitPage() {
     prescriptions: prescriptions.length,
     labs: selectedLabs.length,
   }
+
+  const visitDataForPrinting = patient ? ({
+    encounter: {
+      encounter_date: new Date().toISOString(),
+      quick_notes: quickNotes,
+      advice: advice,
+    },
+    vitals: Object.entries(vitals).filter(([_, val]) => val).map(([k, v]) => {
+      const cfg = vitalConfigs?.find(c => c.id.toString() === k || c.key === k)
+      return { name: cfg?.name || k, unit: cfg?.unit || '', value: Number(v) }
+    }),
+    complaints,
+    diagnoses,
+    treatments,
+    prescriptions: prescriptions.length > 0 ? [{ items: prescriptions }] : [],
+  } as unknown as VisitResponse) : null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -968,21 +1154,71 @@ export default function NewVisitPage() {
               {editingEncounterId ? 'Edit Visit' : 'New Visit'}
             </span>
           </nav>
-          {/* Patient demographics hint */}
-          {patient && (
-            <p className="text-xs text-slate-400 shrink-0 hidden sm:block">
-              {[patient.gender, patient.blood_group].filter(Boolean).join(' · ')}
-            </p>
-          )}
         </div>
 
+        {/* Prominent Patient Details Banner */}
+        {patient && (
+          <div className="mx-6 mt-6 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 max-w-3xl">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-lg font-bold shrink-0">
+                {patient.first_name?.[0]}{patient.last_name?.[0]}
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">{patientName}</h2>
+                <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-2 items-center">
+                  {patient.opd_number && <span className="font-mono text-slate-600 font-medium">{patient.opd_number}</span>}
+                  {patient.opd_number && <span>·</span>}
+                  <span>{patient.gender}</span>
+                  <span>·</span>
+                  <span>{patient.dob ? `${new Date().getFullYear() - new Date(patient.dob).getFullYear()} yrs` : ''}</span>
+                  {patient.blood_group && (
+                    <>
+                      <span>·</span>
+                      <span className="text-red-500 font-bold">{patient.blood_group}</span>
+                    </>
+                  )}
+                  {patient.contact_number && (
+                    <>
+                      <span>·</span>
+                      <span>{patient.contact_number}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {patient.language ? (
+              <div className="flex items-center gap-2.5 bg-indigo-50 border border-indigo-100 px-4 py-2.5 rounded-xl shrink-0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-indigo-500">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                <div>
+                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Language</p>
+                  <p className="text-sm font-bold text-indigo-700">{patient.language}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-100 px-4 py-2.5 rounded-xl shrink-0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-amber-500">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <div>
+                  <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Language</p>
+                  <p className="text-sm font-bold text-amber-700">Not Specified</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Form sections */}
-        <form id="visit-form" onSubmit={handleSubmit} className="px-6 py-6 space-y-4 max-w-3xl">
+        <form id="visit-form" onSubmit={handleSave} className="px-6 py-6 space-y-4 max-w-3xl">
           <OverviewSection
             status={status} reason={reason} notes={notes} quickNotes={quickNotes} advice={advice}
             statuses={statuses}
             onStatus={setStatus} onReason={setReason} onNotes={setNotes}
             onQuickNotes={setQuickNotes} onAdvice={setAdvice}
+            onPrint={() => handlePrint('report')}
           />
 
           {vitalConfigs && vitalConfigs.length > 0 && (
@@ -1027,6 +1263,7 @@ export default function NewVisitPage() {
             onRemove={removePrescription}
             onUpdate={updatePrescription}
             onSaveToCatalog={handleSaveToCatalog}
+            onPrint={() => handlePrint('prescription')}
           />
 
           <LabSection
@@ -1052,6 +1289,40 @@ export default function NewVisitPage() {
           <div className="h-8" />
         </form>
       </div>
+
+      {showSaveModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-8 h-8"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <h3 className="text-xl font-bold text-slate-800 mb-2">Save Consultation</h3>
+            <p className="text-sm text-slate-500 mb-6">Would you like to complete this consultation or keep it open for later?</p>
+            <div className="flex flex-col gap-3">
+              <button onClick={() => performSave('Completed')} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors">
+                Complete Consultation
+              </button>
+              <button onClick={() => performSave('Waiting')} className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors">
+                Keep as Waiting
+              </button>
+              <button onClick={() => setShowSaveModal(false)} className="w-full mt-2 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Print Layout */}
+      {visitDataForPrinting && patient && (
+        <PrintableVisit
+          visit={visitDataForPrinting}
+          patient={patient}
+          clinic={clinic}
+          doctor={me}
+          type={printType}
+        />
+      )}
     </div>
   )
 }

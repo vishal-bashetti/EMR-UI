@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastContainer } from 'react-toastify'
+import 'react-toastify/dist/ReactToastify.css'
 import ProtectedRoute from './components/ProtectedRoute'
-import Layout from './components/Layout'
+import Layout, { IndexRedirect } from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import PatientsPage from './pages/PatientsPage'
@@ -11,6 +13,8 @@ import NewVisitPage from './pages/NewVisitPage'
 import BillingPage from './pages/BillingPage'
 import SettingsPage from './pages/SettingsPage'
 import LabDashboardPage from './pages/LabDashboardPage'
+import PharmacyPage from './pages/PharmacyPage'
+import AdminAppointmentsPage from './pages/AdminAppointmentsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -19,6 +23,7 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ToastContainer position="top-right" />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -30,14 +35,16 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route index element={<IndexRedirect />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="patients" element={<PatientsPage />} />
             <Route path="patients/:id" element={<PatientDetailPage />} />
             <Route path="appointments" element={<AppointmentsPage />} />
+            <Route path="admin-appointments" element={<AdminAppointmentsPage />} />
             <Route path="visits/new" element={<NewVisitPage />} />
             <Route path="billing" element={<BillingPage />} />
             <Route path="labs" element={<LabDashboardPage />} />
+            <Route path="pharmacy" element={<PharmacyPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

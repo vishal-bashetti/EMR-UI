@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { FormEvent, MouseEvent, ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   useAppointments,
@@ -13,6 +14,8 @@ import {
 import { usePatients, useCreatePatient } from '../hooks/usePatients'
 import { useDoctors } from '../hooks/useUsers'
 import { useSettings } from '../hooks/useSettings'
+import { useCreateInvoice } from '../hooks/useBilling'
+import { InvoiceModal } from '../components/InvoiceModal'
 import type { Appointment, AppointmentInput, Patient } from '../types'
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -54,7 +57,7 @@ function avatarColor(name = ''): string {
 
 function formatLongDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  return d.toLocaleDateString('en-GB')
 }
 
 function isToday(dateStr: string): boolean {
@@ -270,17 +273,21 @@ const EMPTY_PATIENT_FORM: NewPatientForm = {
 
 export default function AppointmentsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const d = new Date()
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
     return d.toISOString().split('T')[0]
   })
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState<ScheduleForm>({ patient_id: '', doctor_id: '', appointment_type_id: '', appointment_time: '', status: 'Ongoing' })
+  const [billApptId, setBillApptId] = useState<number | null>(null)
+  const [form, setForm] = useState<ScheduleForm>({ patient_id: '', doctor_id: '', appointment_type_id: '', appointment_time: '', status: 'Scheduled' })
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
+  
+  const createInvoice = useCreateInvoice()
   const [showCreatePatient, setShowCreatePatient] = useState(false)
   const [patientForm, setPatientForm] = useState<NewPatientForm>(EMPTY_PATIENT_FORM)
 
@@ -300,6 +307,8 @@ export default function AppointmentsPage() {
   const createPatientMut = useCreatePatient()
   const updateAppt = useUpdateAppointment()
   const remove = useDeleteAppointment()
+
+  const isSelectedApptUneditable = appointmentDetails && ['No Show', 'Completed', 'Cancelled'].includes(appointmentDetails.status)
 
   const timeSlots = useMemo(
     () => generateTimeSlots(settings?.start_time, settings?.end_time, settings?.slot_duration_minutes),
@@ -348,7 +357,7 @@ export default function AppointmentsPage() {
   }
 
   const resetScheduleForm = () => {
-    setForm({ patient_id: '', doctor_id: '', appointment_type_id: '', appointment_time: '', status: 'Ongoing' })
+    setForm({ patient_id: '', doctor_id: '', appointment_type_id: '', appointment_time: '', status: 'Scheduled' })
     setSearchQuery('')
     setSelectedPatient(null)
     setShowCreatePatient(false)
@@ -596,7 +605,7 @@ export default function AppointmentsPage() {
               <div style={{ background: '#f8fafc', borderRadius: 12, padding: '13px 15px', marginBottom: 14 }}>
                 <FieldLabel>{t('appointments.dateTime')}</FieldLabel>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
-                  {new Date(appointmentDetails.appointment_time).toLocaleString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(appointmentDetails.appointment_time).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })}
                 </div>
               </div>
 
@@ -604,6 +613,7 @@ export default function AppointmentsPage() {
                 <FieldLabel>{t('settings.colStatus')}</FieldLabel>
                 <div style={{ position: 'relative' }}>
                   <select
+                    disabled={isSelectedApptUneditable || false}
                     value={appointmentDetails.status}
                     onChange={(e) => {
                       const updatedData: AppointmentInput = {
@@ -616,7 +626,7 @@ export default function AppointmentsPage() {
                       updateAppt.mutate({ id: appointmentDetails.id, data: updatedData })
                     }}
                     className="appt-input"
-                    style={{ cursor: 'pointer', paddingRight: 40, color: getStatusColor(appointmentDetails.status), fontWeight: 700, fontSize: 14 }}
+                    style={{ cursor: isSelectedApptUneditable ? 'not-allowed' : 'pointer', opacity: isSelectedApptUneditable ? 0.7 : 1, paddingRight: 40, color: getStatusColor(appointmentDetails.status), fontWeight: 700, fontSize: 14 }}
                   >
                     {statuses?.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
                   </select>
@@ -625,10 +635,24 @@ export default function AppointmentsPage() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTop: '1.5px solid #f0f2f8' }}>
-                <button className="danger-btn" onClick={() => { if (confirm(t('appointments.deletePrompt'))) { remove.mutate(appointmentDetails.id); setSelectedAppointmentId(null) } }}>
+                <button 
+                  className="danger-btn" 
+                  disabled={isSelectedApptUneditable || false}
+                  style={{ opacity: isSelectedApptUneditable ? 0.5 : 1, cursor: isSelectedApptUneditable ? 'not-allowed' : 'pointer' }}
+                  onClick={() => { if (confirm(t('appointments.deletePrompt'))) { remove.mutate(appointmentDetails.id); setSelectedAppointmentId(null) } }}>
                   {t('common.delete')}
                 </button>
-                <button className="ghost-btn" onClick={() => setSelectedAppointmentId(null)}>{t('common.done')}</button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button 
+                    className="ghost-btn" 
+                    style={{ color: '#4361ee', background: '#e0e7ff' }}
+                    onClick={() => {
+                      setBillApptId(appointmentDetails.id)
+                    }}>
+                    Generate Bill
+                  </button>
+                  <button className="ghost-btn" onClick={() => setSelectedAppointmentId(null)}>{t('common.done')}</button>
+                </div>
               </div>
             </>
           ) : (
@@ -808,6 +832,19 @@ export default function AppointmentsPage() {
             </form>
           )}
         </ModalCard>
+      )}
+
+      {billApptId && (
+        <InvoiceModal
+          patients={patients}
+          defaultAppointmentId={billApptId}
+          defaultPatientId={appointments?.find(a => a.id === billApptId)?.patient_id}
+          onClose={() => setBillApptId(null)}
+          onSave={async (data) => {
+            await createInvoice.mutateAsync(data)
+            setBillApptId(null)
+          }}
+        />
       )}
     </div>
   )

@@ -289,7 +289,7 @@ export default function LabDashboardPage() {
                               {t.lab_result.test_name}
                             </span>
                             <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">
-                              Ordered: {new Date(t.lab_result.ordered_date).toLocaleDateString()}
+                              Ordered: {new Date(t.lab_result.ordered_date).toLocaleDateString('en-GB')}
                             </p>
                           </td>
                           <td className="py-4 pr-4">
@@ -327,35 +327,43 @@ export default function LabDashboardPage() {
       {activeTab === 'reports' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm print:hidden">
-            <div className="flex gap-4 mb-4">
-              <input 
-                type="text" 
-                placeholder="Search patient to view reports..." 
-                value={reportSearchQuery}
-                onChange={e => setReportSearchQuery(e.target.value)}
-                className={inputCls}
-              />
-              <input
-                type="date"
-                value={reportDate}
-                onChange={e => setReportDate(e.target.value)}
-                className={`shrink-0 ${inputCls}`}
-                disabled={!!selectedReportPatientId}
-              />
-            </div>
-            {reportPatients && reportPatients.length > 0 && !selectedReportPatientId && (
-              <div className="flex flex-wrap gap-2">
-                {reportPatients.map(p => (
-                  <button 
-                    key={p.id} 
-                    onClick={() => setSelectedReportPatientId(p.id)}
-                    className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm hover:border-blue-500"
-                  >
-                    {p.first_name} {p.last_name}
-                  </button>
-                ))}
+            <div className="flex gap-4 mb-4 relative">
+              <div className="flex-1">
+                <input 
+                  type="text" 
+                  placeholder="Search patient to view reports..." 
+                  value={reportSearchQuery}
+                  onChange={e => setReportSearchQuery(e.target.value)}
+                  className={inputCls}
+                />
+                {reportSearchQuery.length > 0 && reportPatients && reportPatients.length > 0 && !selectedReportPatientId && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                    {reportPatients.slice(0, 10).map(p => (
+                      <button 
+                        key={p.id} 
+                        onClick={() => {
+                          setSelectedReportPatientId(p.id)
+                          setReportSearchQuery('')
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0 text-sm"
+                      >
+                        <span className="font-medium text-slate-800">{p.first_name} {p.last_name}</span>
+                        <span className="ml-2 text-xs text-slate-400">ID: {p.id}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
+              <div className="w-48 shrink-0">
+                <input
+                  type="date"
+                  value={reportDate}
+                  onChange={e => setReportDate(e.target.value)}
+                  className={inputCls}
+                  disabled={!!selectedReportPatientId}
+                />
+              </div>
+            </div>
             {selectedReportPatientId && (
               <p className="text-sm text-blue-600 font-medium">
                 Viewing reports for Patient ID: {selectedReportPatientId} 
@@ -378,7 +386,7 @@ export default function LabDashboardPage() {
                     }
                   }
                   
-                  const dateStr = new Date(curr.result_date || curr.ordered_date).toLocaleDateString()
+                  const dateStr = new Date(curr.result_date || curr.ordered_date).toLocaleDateString('en-GB')
                   if (!acc[pId].dates[dateStr]) acc[pId].dates[dateStr] = []
                   acc[pId].dates[dateStr].push(curr)
                   
@@ -395,7 +403,7 @@ export default function LabDashboardPage() {
                     <h2 className="text-2xl font-bold text-slate-900">Laboratory Report</h2>
                     <p className="text-slate-600">Patient ID: {patient.id} | Patient Name: {patient.first_name} {patient.last_name}</p>
                     {!selectedReportPatientId && (
-                      <p className="text-slate-500 text-sm mt-1">Date: {new Date(reportDate).toLocaleDateString()}</p>
+                      <p className="text-slate-500 text-sm mt-1">Date: {new Date(reportDate).toLocaleDateString('en-GB')}</p>
                     )}
                   </div>
 

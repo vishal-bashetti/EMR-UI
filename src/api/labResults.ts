@@ -5,7 +5,7 @@ export const getLabCatalog = (query?: string): Promise<LabCatalogItem[]> =>
   api.get<LabCatalogItem[]>('/lab_results/lab_catalog', { params: query ? { query } : undefined }).then((r) => r.data)
 
 export const createLabCatalogItem = (data: LabCatalogInput): Promise<LabCatalogItem> =>
-  api.post<LabCatalogItem>('/lab_catalog', data).then((r) => r.data)
+  api.post<LabCatalogItem>('/lab_results/lab_catalog', data).then((r) => r.data)
 
 export const getComboCatalog = (query?: string): Promise<LabComboCatalogItem[]> =>
   api.get<LabComboCatalogItem[]>('/lab_results/combo_catalog', { params: query ? { query } : undefined }).then((r) => r.data)

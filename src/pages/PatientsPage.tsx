@@ -17,11 +17,15 @@ interface PatientFormState {
   blood_group: string
   address: string
   language: string
+  opd_number: string
+  emergency_contact: string
+  emergency_phone: string
 }
 
 const EMPTY_FORM: PatientFormState = {
-  first_name: '', last_name: '', dob: '', gender: 'Male',
-  contact_number: '', email: '', blood_group: '', address: '', language: ''
+  first_name: '', last_name: '', dob: '', gender: '',
+  contact_number: '', email: '', blood_group: '', address: '', language: '',
+  opd_number: '', emergency_contact: '', emergency_phone: ''
 }
 
 function Avatar({ name }: { name: string }) {
@@ -65,6 +69,25 @@ export default function PatientsPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    
+    // Validations
+    if (form.dob) {
+      const selectedDate = new Date(form.dob)
+      const today = new Date()
+      if (selectedDate > today) {
+        setFormError('Date of birth cannot be in the future.')
+        return
+      }
+    }
+
+    if (form.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(form.email)) {
+        setFormError('Please enter a valid email address.')
+        return
+      }
+    }
+
     setFormError('')
     try {
       await create.mutateAsync(form)
@@ -214,7 +237,15 @@ export default function PatientsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 grid grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit}>
+              <div className="px-6 py-5 bg-slate-50/50 border-b border-slate-100">
+                <div className="w-full sm:w-1/2 pr-0 sm:pr-2">
+                  <Field label="OPD Number" required>
+                    <input className={inputCls} value={form.opd_number} onChange={set('opd_number')} required placeholder="OPD-12345" />
+                  </Field>
+                </div>
+              </div>
+              <div className="p-6 grid grid-cols-2 gap-4">
               <Field label={t('patients.firstName')} required>
                 <input className={inputCls} value={form.first_name} onChange={set('first_name')} required placeholder="John" />
               </Field>
@@ -222,10 +253,11 @@ export default function PatientsPage() {
                 <input className={inputCls} value={form.last_name} onChange={set('last_name')} required placeholder="Doe" />
               </Field>
               <Field label={t('patients.dob')} required>
-                <input className={inputCls} type="date" value={form.dob} onChange={set('dob')} required />
+                <input className={inputCls} type="date" value={form.dob} onChange={set('dob')} max={new Date().toISOString().split('T')[0]} required />
               </Field>
-              <Field label={t('patients.colGender')}>
-                <select className={inputCls} value={form.gender} onChange={set('gender')}>
+              <Field label={t('patients.colGender')} required>
+                <select className={inputCls} value={form.gender} onChange={set('gender')} required>
+                  <option value="" disabled>{t('common.select') || 'Select'}</option>
                   <option value="Male">{t('gender.male')}</option>
                   <option value="Female">{t('gender.female')}</option>
                   <option value="Other">{t('gender.other')}</option>
@@ -237,9 +269,9 @@ export default function PatientsPage() {
               <Field label={t('patients.email')}>
                 <input className={inputCls} type="email" value={form.email} onChange={set('email')} placeholder="john@example.com" />
               </Field>
-              <Field label={t('patients.bloodGroup')}>
-                <select className={inputCls} value={form.blood_group} onChange={set('blood_group')}>
-                  <option value="">{t('common.select')}</option>
+              <Field label={t('patients.bloodGroup')} required>
+                <select className={inputCls} value={form.blood_group} onChange={set('blood_group')} required>
+                  <option value="" disabled>{t('common.select') || 'Select'}</option>
                   {['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−'].map((g) => <option key={g}>{g}</option>)}
                 </select>
               </Field>
@@ -248,6 +280,12 @@ export default function PatientsPage() {
               </Field>
               <Field label="Language">
                 <input className={inputCls} value={form.language} onChange={set('language')} placeholder="e.g. English, Spanish" />
+              </Field>
+              <Field label="Emergency Contact Name">
+                <input className={inputCls} value={form.emergency_contact} onChange={set('emergency_contact')} placeholder="Jane Doe" />
+              </Field>
+              <Field label="Emergency Contact Phone">
+                <input className={inputCls} value={form.emergency_phone} onChange={set('emergency_phone')} placeholder="+1 555 9999" />
               </Field>
 
               {formError && (
@@ -264,6 +302,7 @@ export default function PatientsPage() {
                   className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
                   {create.isPending ? t('common.saving') : t('patients.savePatient')}
                 </button>
+              </div>
               </div>
             </form>
           </div>

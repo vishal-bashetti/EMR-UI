@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
-import { getSettings } from '../api/settings'
-import type { SettingsMap } from '../types'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getSettings, getClinic, updateClinic, uploadClinicLogo } from '../api/settings'
+import type { SettingsMap, Clinic, ClinicInput } from '../types'
 
 export const useSettings = () =>
   useQuery({
@@ -15,3 +15,29 @@ export const useSettings = () =>
       return settingsMap
     },
   })
+
+export const useClinic = () =>
+  useQuery({
+    queryKey: ['clinic'],
+    queryFn: getClinic,
+  })
+
+export const useUpdateClinic = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: ClinicInput) => updateClinic(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clinic'] })
+    },
+  })
+}
+
+export const useUploadClinicLogo = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => uploadClinicLogo(file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clinic'] })
+    },
+  })
+}

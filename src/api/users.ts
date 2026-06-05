@@ -9,6 +9,13 @@ export const updateUser = (id: number, data: UserInput): Promise<User> =>
   api.put<User>(`/users/${id}`, data).then((r) => r.data)
 export const deleteUser = (id: number): Promise<{ detail: string }> =>
   api.delete<{ detail: string }>(`/users/${id}`).then((r) => r.data)
+export const uploadSignature = (id: number, file: File): Promise<{ detail: string }> => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post<{ detail: string }>(`/users/${id}/signature`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data)
+}
 
 export const getRoles = (): Promise<Role[]> => api.get<Role[]>('/users/roles').then((r) => r.data)
 export const createRole = (data: RoleInput): Promise<Role> => api.post<Role>('/users/roles', data).then((r) => r.data)

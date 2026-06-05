@@ -13,6 +13,9 @@ export const getLastVisit = (patientId: number): Promise<VisitResponse> =>
 export const getVisitHistory = (patientId: number, limit = 6): Promise<VisitResponse[]> =>
   api.get<VisitResponse[]>(`/visits/history/${patientId}`, { params: { limit } }).then((r) => r.data)
 
+export const getVisitById = (encounterId: number): Promise<VisitResponse> =>
+  api.get<VisitResponse>(`/visits/${encounterId}`).then((r) => r.data)
+
 export const createVisit = (data: VisitPayload): Promise<Encounter> =>
   api.post<Encounter>('/visits/', data).then((r) => r.data)
 

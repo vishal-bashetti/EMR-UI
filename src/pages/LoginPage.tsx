@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { login } from '../api/auth'
 import { getMe } from '../api/users'
@@ -28,6 +29,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const { setTokens, setUser } = useAuthStore()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -38,6 +40,7 @@ export default function LoginPage() {
       setTokens(data.access_token, data.refresh_token)
       const me = await getMe()
       setUser(me)
+      queryClient.clear()
       navigate('/dashboard')
     } catch (err) {
       const detail = isAxiosError(err)

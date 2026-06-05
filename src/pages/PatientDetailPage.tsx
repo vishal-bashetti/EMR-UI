@@ -147,6 +147,7 @@ function PatientHero({
 
 export function LatestVisitSummary({ visit, patientId, doctorId }: { visit: VisitResponse; patientId?: number; doctorId?: number }) {
   const { encounter, vitals, complaints, diagnoses, treatments, prescriptions } = visit
+  const prescriptionItems = prescriptions?.flatMap(p => p.items || []) || []
   const [expanded, setExpanded] = useState(false)
   const dt = new Date(encounter.encounter_date)
 
@@ -222,7 +223,7 @@ export function LatestVisitSummary({ visit, patientId, doctorId }: { visit: Visi
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              {dt.toLocaleDateString('en-GB')}
               {' · '}{dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
             </p>
             {encounter.reason && (
@@ -232,9 +233,9 @@ export function LatestVisitSummary({ visit, patientId, doctorId }: { visit: Visi
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {encounter.status !== 'Completed' && patientId && (
+          {!['Completed', 'Cancelled', 'No Show'].includes(encounter.status) && patientId && (
             <Link
-              to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}&edit=true`}
+              to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}&edit=true&encounter_id=${encounter.id}`}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-blue-200 shadow-sm"
             >
               {Icons.edit} Continue Visit
@@ -269,7 +270,7 @@ export function LatestVisitSummary({ visit, patientId, doctorId }: { visit: Visi
             {/* Prescriptions */}
             <div className="px-4 py-3">
               <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-2">Prescriptions</p>
-              {prescriptions && prescriptions.length > 0 ? (
+              {prescriptionItems.length > 0 ? (
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-slate-100">
@@ -279,7 +280,7 @@ export function LatestVisitSummary({ visit, patientId, doctorId }: { visit: Visi
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {prescriptions.map((p, i) => (
+                    {prescriptionItems.map((p, i) => (
                       <tr key={i}>
                         <td className="py-1.5 font-semibold text-slate-800 pr-3">{p.name}</td>
                         <td className="py-1.5 text-slate-600 pr-3 font-mono text-[11px]">
@@ -328,10 +329,11 @@ function VisitCard({ visit, index, patientId, doctorId }: {
   doctorId?: number
 }) {
   const { encounter, vitals, complaints, diagnoses, treatments, prescriptions } = visit
+  const prescriptionItems = prescriptions?.flatMap(p => p.items || []) || []
   const [open, setOpen] = useState(index === 0)
   const dt = new Date(encounter.encounter_date)
 
-  const hasContent = vitals.length || complaints.length || diagnoses.length || treatments.length || (prescriptions?.length ?? 0)
+  const hasContent = vitals.length || complaints.length || diagnoses.length || treatments.length || prescriptionItems.length > 0
 
   return (
     <div className={`relative bg-white border rounded-2xl transition-all duration-200 ${
@@ -362,7 +364,7 @@ function VisitCard({ visit, index, patientId, doctorId }: {
               )}
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              {dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+              {dt.toLocaleDateString('en-GB')}
               {' · '}{dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
@@ -370,9 +372,9 @@ function VisitCard({ visit, index, patientId, doctorId }: {
 
         <div className="flex items-center gap-2 shrink-0">
           {/* Continue visit for open encounters */}
-          {encounter.status !== 'Completed' && patientId && (
+          {!['Completed', 'Cancelled', 'No Show'].includes(encounter.status) && patientId && (
             <Link
-              to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}&edit=true`}
+              to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}&edit=true&encounter_id=${encounter.id}`}
               onClick={e => e.stopPropagation()}
               className="flex items-center gap-1 text-xs font-semibold text-blue-600 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-lg transition-colors border border-blue-200"
             >
@@ -383,7 +385,7 @@ function VisitCard({ visit, index, patientId, doctorId }: {
           {[
             complaints.length ? `${complaints.length} complaint${complaints.length > 1 ? 's' : ''}` : null,
             diagnoses.length ? `${diagnoses.length} dx` : null,
-            (prescriptions?.length ?? 0) > 0 ? `${prescriptions!.length} Rx` : null,
+            prescriptionItems.length > 0 ? `${prescriptionItems.length} Rx` : null,
           ].filter(Boolean).map((chip, i) => (
             <span key={i} className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full hidden sm:inline">
               {chip}
@@ -461,7 +463,7 @@ function VisitCard({ visit, index, patientId, doctorId }: {
           )}
 
           {/* Prescriptions */}
-          {prescriptions && prescriptions.length > 0 && (
+          {prescriptionItems.length > 0 && (
             <div>
               <SectionLabel>Prescriptions</SectionLabel>
               <div className="overflow-x-auto rounded-xl border border-slate-100">
@@ -474,7 +476,7 @@ function VisitCard({ visit, index, patientId, doctorId }: {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {prescriptions.map((p, i) => (
+                    {prescriptionItems.map((p, i) => (
                       <tr key={i} className="hover:bg-slate-50/50">
                         <td className="px-3 py-2 font-semibold text-slate-800">{p.name}</td>
                         {[p.morning, p.afternoon, p.evening, p.night].map((val, j) => (
@@ -658,7 +660,7 @@ function LabResultsTab({ results, loading, onEdit }: {
               <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.unit || <span className="text-slate-300">—</span>}</td>
               <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.reference_range || <span className="text-slate-300">—</span>}</td>
               <td className="px-4 py-3.5 text-slate-500 text-xs">
-                {new Date(lab.ordered_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {new Date(lab.ordered_date).toLocaleDateString('en-GB')}
               </td>
               <td className="px-4 py-3.5 pr-5 text-right">
                 <button

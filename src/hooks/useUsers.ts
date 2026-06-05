@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'react-toastify'
 import {
   getMe,
   getUsers,
@@ -12,6 +13,7 @@ import {
   deleteRole,
   getPermissions,
   createPermission,
+  uploadSignature,
 } from '../api/users'
 import type { UserInput, RoleInput } from '../types'
 
@@ -37,11 +39,28 @@ export const useUpdateUser = () => {
   })
 }
 
-export const useDeleteUser = () => {
-  const qc = useQueryClient()
+export function useDeleteUser() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: deleteUser,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('User deactivated successfully')
+    },
+  })
+}
+
+export function useUploadSignature() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, file }: { id: number; file: File }) => uploadSignature(id, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast.success('Signature uploaded successfully')
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || err.message || 'Failed to upload signature')
+    }
   })
 }
 

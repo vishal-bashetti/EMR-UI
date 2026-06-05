@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  useUsers, useCreateUser, useDeleteUser,
+  useUsers, useCreateUser, useDeleteUser, useUploadSignature,
   useRoles, useCreateRole, useUpdateRole, useDeleteRole,
   usePermissions, useCreatePermission,
 } from '../hooks/useUsers'
 import { useAllDrugs, useCreateDrug, useUpdateDrug } from '../hooks/useDrugs'
 import { useLabCatalog, useCreateLabCatalogItem } from '../hooks/useLabResults'
 import { useAppointmentStatuses, useCreateAppointmentStatus } from '../hooks/useAppointments'
+import { useClinic, useUpdateClinic, useUploadClinicLogo } from '../hooks/useSettings'
 import { Icons } from '../components/Icons'
-import type { DrugInput, Role } from '../types'
+import SignatureCanvas from 'react-signature-canvas'
+import type { DrugInput, Role, ClinicInput, User } from '../types'
 
 const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white'
 
@@ -63,6 +65,32 @@ function UsersTab() {
     await createUser.mutateAsync({ ...form, role_id: form.role_id ? Number(form.role_id) : null, is_active: true })
     setForm({ username: '', email: '', password: '', role_id: '' })
     setShowAdd(false)
+  }
+
+  const [signatureUser, setSignatureUser] = useState<User | null>(null)
+  const uploadSignature = useUploadSignature()
+  const sigCanvas = useRef<any>(null)
+
+  const handleSaveSignature = async () => {
+    if (!sigCanvas.current || !signatureUser) return
+    if (sigCanvas.current.isEmpty()) {
+      alert("Please draw a signature first!")
+      return
+    }
+    
+    try {
+      const canvas = sigCanvas.current.getCanvas()
+      const dataUrl = canvas.toDataURL('image/png')
+      const res = await fetch(dataUrl)
+      const blob = await res.blob()
+      
+      const file = new File([blob], `signature_${signatureUser.id}.png`, { type: 'image/png' })
+      uploadSignature.mutate({ id: signatureUser.id, file }, {
+        onSuccess: () => setSignatureUser(null)
+      })
+    } catch (e) {
+      console.error("Failed to process signature canvas", e)
+    }
   }
 
   return (
@@ -126,9 +154,16 @@ function UsersTab() {
                     </span>,
                   ]}
                   actions={
-                    <button onClick={() => deleteUser.mutate(u.id)} className="text-xs text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {t('settings.deactivate')}
-                    </button>
+                    <div className="flex justify-end gap-3">
+                      {(u.role?.name?.toLowerCase().includes('doctor') || u.role?.name?.toLowerCase().includes('lab')) && (
+                        <button onClick={() => setSignatureUser(u)} className="text-xs text-blue-500 hover:text-blue-700 font-medium">
+                          {u.signature_path ? 'Edit Signature' : 'Add Signature'}
+                        </button>
+                      )}
+                      <button onClick={() => deleteUser.mutate(u.id)} className="text-xs text-red-400 hover:text-red-600 font-medium">
+                        {t('settings.deactivate')}
+                      </button>
+                    </div>
                   }
                 />
               ))}
@@ -136,6 +171,56 @@ function UsersTab() {
           </table>
         )}
       </SectionCard>
+
+      {/* Signature Modal */}
+      {signatureUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+              <h2 className="text-lg font-bold text-slate-800">Draw Signature - {signatureUser.username}</h2>
+              <button onClick={() => setSignatureUser(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="p-5 flex flex-col items-center justify-center bg-slate-50">
+              <div className="bg-white border-2 border-dashed border-slate-300 rounded-xl overflow-hidden shadow-sm">
+                <SignatureCanvas
+                  ref={sigCanvas}
+                  penColor="black"
+                  canvasProps={{ width: 350, height: 150, className: 'sigCanvas cursor-crosshair' }}
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-3 text-center px-4">
+                Please draw the signature inside the box. It will be cropped tightly around the edges to minimize size.
+              </p>
+            </div>
+            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex justify-between">
+              <button
+                type="button"
+                onClick={() => sigCanvas.current?.clear()}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 rounded-xl bg-slate-100 transition-colors"
+              >
+                Clear
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSignatureUser(null)}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSignature}
+                  disabled={uploadSignature.isPending}
+                  className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60 transition-colors"
+                >
+                  {uploadSignature.isPending ? 'Saving...' : 'Save Signature'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -304,6 +389,7 @@ type DrugTextField = 'name' | 'generic_name' | 'form' | 'strength' | 'manufactur
 function DrugsTab() {
   const { t } = useTranslation()
   const [showAdd, setShowAdd] = useState(false)
+  const [editingDrugId, setEditingDrugId] = useState<number | null>(null)
   const [form, setForm] = useState<DrugInput>(EMPTY_DRUG)
   const { data: drugs, isLoading } = useAllDrugs()
   const createDrug = useCreateDrug()
@@ -314,16 +400,21 @@ function DrugsTab() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    await createDrug.mutateAsync(form)
+    if (editingDrugId) {
+      await updateDrug.mutateAsync({ id: editingDrugId, data: form })
+    } else {
+      await createDrug.mutateAsync(form)
+    }
     setForm(EMPTY_DRUG)
     setShowAdd(false)
+    setEditingDrugId(null)
   }
 
   return (
     <SectionCard
       title={t('settings.drugCatalogCount', { count: drugs?.length ?? 0 })}
       action={
-        <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
+        <button onClick={() => { setShowAdd((v) => !v); setEditingDrugId(null); setForm(EMPTY_DRUG); }} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
           {Icons.plus} {t('settings.addDrug')}
         </button>
       }
@@ -354,9 +445,9 @@ function DrugsTab() {
             <input className={inputCls} value={form.manufacturer} onChange={set('manufacturer')} placeholder="e.g. J&J" />
           </div>
           <div className="col-span-3 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
-            <button type="submit" disabled={createDrug.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
-              {createDrug.isPending ? t('common.adding') : t('settings.addDrug')}
+            <button type="button" onClick={() => { setShowAdd(false); setEditingDrugId(null); setForm(EMPTY_DRUG); }} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
+            <button type="submit" disabled={createDrug.isPending || updateDrug.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
+              {createDrug.isPending || updateDrug.isPending ? t('common.saving', 'Saving...') : (editingDrugId ? t('common.save', 'Save Changes') : t('settings.addDrug'))}
             </button>
           </div>
         </form>
@@ -382,22 +473,41 @@ function DrugsTab() {
                   d.manufacturer || <span className="text-slate-300">—</span>,
                 ]}
                 actions={
-                  <button
-                    onClick={() => updateDrug.mutate({
-                      id: d.id,
-                      data: {
-                        name: d.name,
-                        generic_name: d.generic_name ?? '',
-                        form: d.form ?? '',
-                        strength: d.strength ?? '',
-                        manufacturer: d.manufacturer ?? '',
-                        is_active: !d.is_active,
-                      },
-                    })}
-                    className={`text-xs opacity-0 group-hover:opacity-100 transition-opacity ${d.is_active ? 'text-red-400 hover:text-red-600' : 'text-emerald-500 hover:text-emerald-700'}`}
-                  >
-                    {d.is_active ? t('settings.deactivate') : t('settings.activate')}
-                  </button>
+                  <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => {
+                        setEditingDrugId(d.id)
+                        setForm({
+                          name: d.name,
+                          generic_name: d.generic_name || '',
+                          form: d.form || '',
+                          strength: d.strength || '',
+                          manufacturer: d.manufacturer || '',
+                          is_active: d.is_active,
+                        })
+                        setShowAdd(true)
+                      }}
+                      className="text-xs text-blue-500 hover:text-blue-700"
+                    >
+                      {t('common.edit', 'Edit')}
+                    </button>
+                    <button
+                      onClick={() => updateDrug.mutate({
+                        id: d.id,
+                        data: {
+                          name: d.name,
+                          generic_name: d.generic_name ?? '',
+                          form: d.form ?? '',
+                          strength: d.strength ?? '',
+                          manufacturer: d.manufacturer ?? '',
+                          is_active: !d.is_active,
+                        },
+                      })}
+                      className={`text-xs ${d.is_active ? 'text-red-400 hover:text-red-600' : 'text-emerald-500 hover:text-emerald-700'}`}
+                    >
+                      {d.is_active ? t('settings.deactivate') : t('settings.activate')}
+                    </button>
+                  </div>
                 }
               />
             ))}
@@ -568,7 +678,7 @@ function ApptStatusesTab() {
 }
 
 // ─── Main Settings Page ───────────────────────────────────────────────────────
-type TabKey = 'users' | 'roles' | 'drugs' | 'lab' | 'statuses'
+type TabKey = 'users' | 'roles' | 'drugs' | 'lab' | 'statuses' | 'clinic'
 
 const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'users', labelKey: 'settings.tabUsers' },
@@ -576,6 +686,7 @@ const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'drugs', labelKey: 'settings.tabDrugs' },
   { key: 'lab', labelKey: 'settings.tabLab' },
   { key: 'statuses', labelKey: 'settings.tabStatuses' },
+  { key: 'clinic', labelKey: 'settings.tabClinic' },
 ]
 
 export default function SettingsPage() {
@@ -610,6 +721,115 @@ export default function SettingsPage() {
       {activeTab === 'drugs' && <DrugsTab />}
       {activeTab === 'lab' && <LabCatalogTab />}
       {activeTab === 'statuses' && <ApptStatusesTab />}
+      {activeTab === 'clinic' && <ClinicTab />}
     </div>
+  )
+}
+
+// ─── Clinic Settings Tab ────────────────────────────────────────────────────────
+function ClinicTab() {
+  const { t } = useTranslation()
+  const { data: clinic, isLoading } = useClinic()
+  const updateClinic = useUpdateClinic()
+  const uploadLogo = useUploadClinicLogo()
+
+  const [form, setForm] = useState<ClinicInput | null>(null)
+
+  // Initialize form when clinic data arrives
+  if (clinic && form === null) {
+    setForm({
+      name: clinic.name || '',
+      address: clinic.address || '',
+      support_email: clinic.support_email || '',
+      phone: clinic.phone || '',
+      whatsapp: clinic.whatsapp || '',
+      website: clinic.website || '',
+      app_link: clinic.app_link || '',
+    })
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!form) return
+    await updateClinic.mutateAsync(form)
+    alert(t('common.saved', 'Saved successfully'))
+  }
+
+  const setField = (field: keyof ClinicInput) => (e: ChangeEvent<HTMLInputElement>) => {
+    if (form) setForm({ ...form, [field]: e.target.value })
+  }
+
+  const handleLogoChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      await uploadLogo.mutateAsync(file)
+      alert(t('common.saved', 'Logo uploaded successfully'))
+    } catch (err) {
+      alert(t('common.error', 'Failed to upload logo'))
+    }
+  }
+
+  if (isLoading || !form) return <Spinner />
+
+  return (
+    <SectionCard title={t('settings.clinicDetails', 'Clinic Details')}>
+      <div className="p-6 border-b border-slate-100 flex items-center gap-6">
+        <div className="w-24 h-24 bg-slate-100 rounded-2xl flex items-center justify-center shrink-0 overflow-hidden border border-slate-200">
+          {clinic?.logo_path ? (
+            <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Clinic Logo" className="w-full h-full object-contain" />
+          ) : (
+            <div className="text-slate-400 w-10 h-10">{Icons.heartbeat}</div>
+          )}
+        </div>
+        <div>
+          <h4 className="text-sm font-semibold text-slate-800">{t('settings.clinicLogo', 'Clinic Logo')}</h4>
+          <p className="text-xs text-slate-500 mt-1 mb-3 max-w-sm">
+            {t('settings.clinicLogoHelp', 'Upload a logo to display in the application header and on printed reports.')}
+          </p>
+          <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+            {uploadLogo.isPending ? t('common.uploading', 'Uploading...') : t('settings.uploadLogo', 'Upload Logo')}
+            <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} disabled={uploadLogo.isPending} />
+          </label>
+        </div>
+      </div>
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-w-2xl">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.clinicName', 'Clinic Name')}</label>
+            <input required className={inputCls} value={form.name} onChange={setField('name')} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.address', 'Address')}</label>
+            <input required className={inputCls} value={form.address} onChange={setField('address')} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.supportEmail', 'Support Email')}</label>
+            <input type="email" className={inputCls} value={form.support_email} onChange={setField('support_email')} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.phone', 'Phone')}</label>
+            <input type="tel" className={inputCls} value={form.phone} onChange={setField('phone')} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.whatsapp', 'WhatsApp')}</label>
+            <input type="tel" className={inputCls} value={form.whatsapp} onChange={setField('whatsapp')} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.website', 'Website')}</label>
+            <input type="url" className={inputCls} value={form.website} onChange={setField('website')} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.appLink', 'App Link')}</label>
+            <input type="url" className={inputCls} value={form.app_link} onChange={setField('app_link')} />
+          </div>
+        </div>
+        <div className="pt-4 flex justify-end">
+          <button type="submit" disabled={updateClinic.isPending} className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
+            {updateClinic.isPending ? t('common.saving', 'Saving...') : t('common.save', 'Save Changes')}
+          </button>
+        </div>
+      </form>
+    </SectionCard>
   )
 }

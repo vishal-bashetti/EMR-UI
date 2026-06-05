@@ -9,3 +9,36 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 1cm;
+  }
+  
+  /* Hide everything by default in print mode */
+  body * {
+    visibility: hidden;
+  }
+  
+  /* Only show elements with the print-area class and their children */
+  .print-area, .print-area * {
+    visibility: visible;
+  }
+  
+  /* Position the print area at the absolute top left of the page */
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Force background colors to print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
