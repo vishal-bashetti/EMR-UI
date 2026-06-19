@@ -1,13 +1,15 @@
 import { NavLink, Outlet, useNavigate, Navigate } from 'react-router-dom'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useIsMutating } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import useAuthStore from '../store/authStore'
 import { useMe } from '../hooks/useUsers'
 import { useClinic } from '../hooks/useSettings'
 import { Icons } from './Icons'
 import LanguageSwitcher from './LanguageSwitcher'
+import { MessagesWidget } from './MessagesWidget'
+import { useWebSocket } from '../hooks/useWebSocket'
 
 const navItems: { to: string; key: string; icon: ReactNode }[] = [
   { to: '/dashboard', key: 'nav.dashboard', icon: Icons.dashboard },
@@ -16,6 +18,7 @@ const navItems: { to: string; key: string; icon: ReactNode }[] = [
   { to: '/billing', key: 'nav.billing', icon: Icons.billing },
   { to: '/labs', key: 'nav.labs', icon: Icons.flask }, // Uses translation key or fallback
   { to: '/pharmacy', key: 'nav.pharmacy', icon: Icons.pill },
+  { to: '/reports', key: 'nav.reports', icon: Icons.activity },
   { to: '/settings', key: 'nav.settings', icon: Icons.settings },
 ]
 
@@ -52,13 +55,15 @@ export function IndexRedirect() {
 }
 
 export default function Layout() {
-  const { t } = useTranslation()
-  const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const { data: me } = useMe()
   const { data: clinic } = useClinic()
   const queryClient = useQueryClient()
+  const logout = useAuthStore((s) => s.logout)
+  const isMutating = useIsMutating()
   const [isCollapsed, setIsCollapsed] = useState(false)
+  useWebSocket()
 
   const handleLogout = () => {
     queryClient.clear()
@@ -67,7 +72,7 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden print:h-auto print:overflow-visible">
+    <div className="flex h-screen bg-slate-50 overflow-hidden print:h-auto print:overflow-visible print:block">
       {/* Sidebar */}
       <aside className={`${isCollapsed ? 'w-20' : 'w-64'} transition-all duration-300 bg-slate-900 flex flex-col shrink-0 print:hidden relative`}>
         
@@ -104,14 +109,23 @@ export default function Layout() {
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto overflow-x-hidden">
           {!isCollapsed && <p className="text-slate-500 text-[10px] font-semibold tracking-widest uppercase px-3 mb-3">{t('nav.mainMenu')}</p>}
           {navItems.filter(item => {
-            const role = me?.role?.name?.toLowerCase() || ''
+            if (!me) return false
+            const tabId = item.to.replace('/', '')
+            
+            // If the user has assigned tabs (even empty), use them strictly
+            if (me.visible_tabs !== undefined) {
+              return me.visible_tabs.includes(tabId)
+            }
+            
+            // Fallback for safety (e.g., if a new user hasn't been assigned tabs yet, or migration failed)
+            const role = me.role?.name?.toLowerCase() || ''
             if (item.to === '/labs') {
-              return role.includes('doctor') || role.includes('lab technician') || role.includes('admin')
+              return role.includes('doctor') || role.includes('lab') || role.includes('admin')
             }
             if (item.to === '/pharmacy') {
               return role.includes('doctor') || role.includes('admin') || role.includes('pharmacist') || role.includes('frontdesk')
             }
-            if (item.to === '/dashboard' || item.to === '/settings') {
+            if (item.to === '/dashboard' || item.to === '/settings' || item.to === '/reports') {
               return role !== 'frontdesk'
             }
             return true
@@ -120,7 +134,7 @@ export default function Layout() {
             <NavLink
               key={to}
               to={to}
-              title={isCollapsed ? (to === '/labs' ? 'Labs' : to === '/pharmacy' ? 'Pharmacy' : t(key)) : undefined}
+              title={isCollapsed ? (to === '/labs' ? 'Labs' : to === '/pharmacy' ? 'Pharmacy' : to === '/reports' ? 'Reports' : t(key)) : undefined}
               className={({ isActive }) =>
                 `flex items-center ${isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2.5'} rounded-lg text-sm font-medium transition-all duration-150 ${
                   isActive
@@ -130,7 +144,7 @@ export default function Layout() {
               }
             >
               <span className="shrink-0">{icon}</span>
-              {!isCollapsed && <span className="truncate">{to === '/labs' ? 'Labs' : to === '/pharmacy' ? 'Pharmacy' : t(key)}</span>}
+              {!isCollapsed && <span className="truncate">{to === '/labs' ? 'Labs' : to === '/pharmacy' ? 'Pharmacy' : to === '/reports' ? 'Reports' : t(key)}</span>}
             </NavLink>
           )})}
         </nav>
@@ -151,6 +165,8 @@ export default function Layout() {
             </div>
           )}
           
+          <MessagesWidget isCollapsed={isCollapsed} />
+          
           <button
             onClick={handleLogout}
             title={isCollapsed ? t('nav.signOut') : undefined}
@@ -163,7 +179,12 @@ export default function Layout() {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-y-auto print:overflow-visible">
+      <main className="flex-1 overflow-y-auto print:overflow-visible print:block relative">
+        {isMutating > 0 && (
+          <div className="absolute top-0 left-0 w-full h-1 bg-blue-100 z-50 overflow-hidden">
+            <div className="h-full bg-blue-500 animate-[pulse_1s_ease-in-out_infinite] w-1/3 rounded-r-full absolute -left-1/3 animate-[slide_1.5s_ease-in-out_infinite]" />
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

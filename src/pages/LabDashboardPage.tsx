@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePatients } from '../hooks/usePatients'
 import { 
   useLabCatalog, 
@@ -8,8 +8,11 @@ import {
   useOrderCombo, 
   useUpdateLabResult,
   useLabResults,
-  useLabResultsByDate
+  useLabResultsByDate,
+  useDeleteLabResult
 } from '../hooks/useLabResults'
+import { useClinic } from '../hooks/useSettings'
+import { useMe } from '../hooks/useUsers'
 import type { LabResult } from '../types'
 import { Icons } from '../components/Icons'
 
@@ -46,13 +49,23 @@ function isOutOfRange(valStr: string | null, refStr: string | null): boolean {
 }
 
 export default function LabDashboardPage() {
+  const { data: clinic } = useClinic()
   const [activeTab, setActiveTab] = useState<'create' | 'queue' | 'reports'>('create')
 
-  // Create Order State
   const [searchQuery, setSearchQuery] = useState('')
   const { data: patients } = usePatients(searchQuery)
   const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null)
   
+  const [page, setPage] = useState(1)
+  const itemsPerPage = 5
+
+  useEffect(() => {
+    setPage(1)
+  }, [searchQuery])
+
+  const paginatedPatients = patients?.slice((page - 1) * itemsPerPage, page * itemsPerPage)
+  const totalPages = patients ? Math.ceil(patients.length / itemsPerPage) : 0
+
   const { data: labCatalog } = useLabCatalog()
   const { data: comboCatalog } = useComboCatalog()
   
@@ -62,6 +75,10 @@ export default function LabDashboardPage() {
   // Fulfillment State
   const { data: queue } = useLabQueue()
   const updateLab = useUpdateLabResult()
+  const deleteLab = useDeleteLabResult()
+  const { data: me } = useMe()
+  const isAdmin = me?.role?.name?.toLowerCase() === 'admin'
+
   const [bulkLabValues, setBulkLabValues] = useState<Record<number, { result_value: string, unit: string, reference_range: string }>>({})
   const [savingProgress, setSavingProgress] = useState<{ patientId: number, current: number, total: number } | null>(null)
 
@@ -185,53 +202,111 @@ export default function LabDashboardPage() {
 
       {activeTab === 'create' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:hidden">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">1. Select Patient</h2>
+          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                {Icons.users}
+              </div>
+              <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">1. Select Patient</h2>
+            </div>
             <input 
               type="text" 
               placeholder="Search patients by name..." 
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className={inputCls}
+              className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 transition-all bg-slate-50 focus:bg-white"
             />
-            <div className="mt-4 space-y-2 max-h-64 overflow-y-auto">
-              {patients?.map(p => (
-                <div 
-                  key={p.id} 
-                  onClick={() => setSelectedPatientId(p.id)}
-                  className={`p-3 rounded-xl cursor-pointer border ${selectedPatientId === p.id ? 'border-blue-500 bg-blue-50' : 'border-slate-100 hover:border-slate-300'}`}
-                >
-                  <p className="text-sm font-bold text-slate-800">{p.first_name} {p.last_name}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">ID: {p.id} | {p.contact_number}</p>
-                </div>
-              ))}
+            <div className="mt-5 space-y-3 max-h-72 overflow-y-auto pr-1 pb-1">
+              {paginatedPatients?.map(p => {
+                const isSelected = selectedPatientId === p.id;
+                return (
+                  <div 
+                    key={p.id} 
+                    onClick={() => setSelectedPatientId(p.id)}
+                    className={`group flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all duration-300 ${
+                      isSelected 
+                        ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-500 shadow-sm' 
+                        : 'bg-white border-2 border-slate-100 hover:border-blue-200 hover:shadow-md'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shadow-sm transition-colors ${
+                        isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-blue-100 group-hover:text-blue-700'
+                      }`}>
+                        {p.first_name[0]}{p.last_name[0]}
+                      </div>
+                      <div>
+                        <p className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
+                          {p.first_name} {p.last_name}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                          <span className="font-semibold text-slate-600">ID: {p.id}</span> 
+                          <span>•</span>
+                          <span>📞 {p.contact_number}</span>
+                        </p>
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white shadow-sm">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                <button 
+                  disabled={page === 1}
+                  onClick={() => setPage(p => p - 1)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  &larr; Prev
+                </button>
+                <span className="text-xs font-bold text-slate-500 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
+                  {page} <span className="text-slate-400 font-medium">/ {totalPages}</span>
+                </span>
+                <button 
+                  disabled={page === totalPages}
+                  onClick={() => setPage(p => p + 1)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  Next &rarr;
+                </button>
+              </div>
+            )}
           </div>
 
-          <div className={`bg-white rounded-2xl border border-slate-200 p-6 shadow-sm ${!selectedPatientId ? 'opacity-50 pointer-events-none' : ''}`}>
-            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-4">2. Order Tests</h2>
+          <div className={`bg-white rounded-2xl border border-slate-100 p-6 shadow-sm transition-opacity duration-300 ${!selectedPatientId ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+                {Icons.flask}
+              </div>
+              <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">2. Order Tests</h2>
+            </div>
             
-            <h3 className="text-xs font-semibold text-slate-500 uppercase mt-4 mb-2">Combo Profiles</h3>
-            <div className="space-y-2 mb-6">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Combo Profiles</h3>
+            <div className="space-y-3 mb-8">
               {comboCatalog?.map(c => (
-                <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <div key={c.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-2xl border-2 border-slate-100 hover:border-purple-200 hover:shadow-md transition-all gap-4">
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">{c.name}</p>
-                    <p className="text-xs text-slate-500">{c.description}</p>
+                    <p className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">{c.name}</p>
+                    <p className="text-xs text-slate-500 mt-1">{c.description}</p>
                   </div>
-                  <button onClick={() => handleOrderCombo(c.id)} className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-200">
+                  <button onClick={() => handleOrderCombo(c.id)} className="w-full sm:w-auto text-xs font-bold bg-purple-50 text-purple-700 px-4 py-2 rounded-xl hover:bg-purple-600 hover:text-white transition-all shadow-sm shrink-0">
                     Order Combo
                   </button>
                 </div>
               ))}
             </div>
 
-            <h3 className="text-xs font-semibold text-slate-500 uppercase mt-4 mb-2">Individual Tests</h3>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Individual Tests</h3>
+            <div className="space-y-3 max-h-64 overflow-y-auto pr-1 pb-1">
               {labCatalog?.map(c => (
-                <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <p className="text-sm font-semibold text-slate-800">{c.name}</p>
-                  <button onClick={() => handleOrderSingle(c.id, c.name)} className="text-xs font-semibold bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-200">
+                <div key={c.id} className="group flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-slate-100 hover:border-blue-200 hover:shadow-md transition-all">
+                  <p className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">{c.name}</p>
+                  <button onClick={() => handleOrderSingle(c.id, c.name)} className="text-xs font-bold bg-blue-50 text-blue-700 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm">
                     Order Single
                   </button>
                 </div>
@@ -271,6 +346,7 @@ export default function LabDashboardPage() {
                       <th className="pb-3 font-semibold">Result Value</th>
                       <th className="pb-3 font-semibold">Unit</th>
                       <th className="pb-3 font-semibold">Ref Range</th>
+                      {isAdmin && <th className="pb-3 font-semibold text-right">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
@@ -306,6 +382,21 @@ export default function LabDashboardPage() {
                           <td className="py-4 text-sm text-slate-700 font-medium">
                             {refRange}
                           </td>
+                          {isAdmin && (
+                            <td className="py-4 text-right">
+                              <button 
+                                onClick={() => {
+                                  if (window.confirm('Are you sure you want to delete this ordered test?')) {
+                                    deleteLab.mutate(t.lab_result.id)
+                                  }
+                                }}
+                                className="text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors"
+                                title="Delete Test"
+                              >
+                                {Icons.trash}
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       )
                     })}
@@ -397,50 +488,90 @@ export default function LabDashboardPage() {
                   key={patient.id} 
                   className={`bg-white rounded-2xl border border-slate-200 p-8 
                     ${printingPatientId && printingPatientId !== patient.id ? 'print:hidden' : 'print:block'} 
-                    print:border-none print:shadow-none print:p-0`}
+                    ${printingPatientId === patient.id ? 'print-area' : ''}
+                    print:border-none print:shadow-none print:p-0 print:rounded-none`}
                 >
-                  <div className="text-center mb-8 border-b pb-6">
-                    <h2 className="text-2xl font-bold text-slate-900">Laboratory Report</h2>
-                    <p className="text-slate-600">Patient ID: {patient.id} | Patient Name: {patient.first_name} {patient.last_name}</p>
-                    {!selectedReportPatientId && (
-                      <p className="text-slate-500 text-sm mt-1">Date: {new Date(reportDate).toLocaleDateString('en-GB')}</p>
-                    )}
+                  {/* ── Print-only: Clinic Letterhead ── */}
+                  <div className="hidden print:block mb-6 border-b-2 border-slate-800 pb-4">
+                    <div className="flex items-start">
+                      {clinic?.logo_path && (
+                        <div className="shrink-0 mr-5">
+                          <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Logo" className="w-20 h-20 object-contain" />
+                        </div>
+                      )}
+                      <div className="flex-1 text-center">
+                        <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">{clinic?.name || 'Laboratory'}</h1>
+                        {clinic?.address && <p className="text-sm text-slate-600 mt-1">{clinic.address}</p>}
+                      </div>
+                      {clinic?.logo_path && <div className="w-20 shrink-0" />}
+                    </div>
                   </div>
 
+                  {/* ── Print-only: "Laboratory Report" title ── */}
+                  <div className="hidden print:block text-center mb-4">
+                    <h2 className="text-lg font-bold text-slate-900 uppercase tracking-wide">Laboratory Report</h2>
+                  </div>
+
+                  {/* ── Patient Info Bar (visible on screen + print) ── */}
+                  <div className="flex justify-between w-full bg-slate-50 p-5 rounded-xl border border-slate-100 mb-6 print:rounded-lg print:border-slate-200">
+                    <div className="text-left">
+                      <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Patient Details</p>
+                      <p className="font-bold text-slate-900 text-lg">{patient.first_name} {patient.last_name}</p>
+                      <p className="text-slate-600 text-sm font-medium">ID: {patient.id}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Date</p>
+                      <p className="text-slate-900 text-lg font-bold">
+                        {!selectedReportPatientId ? new Date(reportDate).toLocaleDateString('en-GB') : Object.keys(dates)[0]}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ── Lab Results Table ── */}
                   {Object.entries(dates)
                     .sort(([dateA], [dateB]) => new Date(dateB).getTime() - new Date(dateA).getTime())
                     .map(([dateStr, dateResults]) => (
-                      <div key={dateStr} className="mb-8">
+                      <div key={dateStr} className="mb-6">
                         {selectedReportPatientId && (
                           <h3 className="text-lg font-bold text-slate-800 mb-3 border-b-2 border-slate-100 pb-2">Results on {dateStr}</h3>
                         )}
-                        <table className="w-full text-left">
+                        <table className="w-full text-left border-collapse">
                           <thead>
-                            <tr className="text-sm text-slate-500 uppercase tracking-wider">
-                              <th className="py-3 font-semibold">Test Name</th>
-                              <th className="py-3 font-semibold">Result</th>
-                              <th className="py-3 font-semibold">Reference Range</th>
-                              <th className="py-3 font-semibold">Unit</th>
+                            <tr className="border-b-2 border-slate-300 text-xs text-slate-500 uppercase tracking-wider">
+                              <th className="py-3 px-2 font-semibold">Test Name</th>
+                              <th className="py-3 px-2 font-semibold">Result</th>
+                              <th className="py-3 px-2 font-semibold">Reference Range</th>
+                              <th className="py-3 px-2 font-semibold">Unit</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100">
+                          <tbody>
                             {dateResults.map(r => {
                                 const outOfRange = isOutOfRange(r.result_value, r.reference_range)
                                 return (
-                                  <tr key={r.id}>
-                                    <td className="py-4 text-sm text-slate-800 font-semibold">{r.test_name}</td>
-                                    <td className={`py-4 text-sm ${outOfRange ? 'font-bold text-red-600 print:text-black print:font-black' : 'text-slate-600'}`}>
-                                      {r.result_value} {outOfRange && '*'}
+                                  <tr key={r.id} className={`border-b border-slate-100 ${outOfRange ? 'bg-red-50/60 print:bg-red-50' : ''}`}>
+                                    <td className="py-3 px-2 text-sm text-slate-800 font-semibold">{r.test_name}</td>
+                                    <td className={`py-3 px-2 text-sm ${outOfRange ? 'font-bold text-red-600' : 'text-slate-600'}`}>
+                                      {r.result_value} {outOfRange && <span className="text-red-500">*</span>}
                                     </td>
-                                    <td className="py-4 text-sm text-slate-500">{r.reference_range}</td>
-                                    <td className="py-4 text-sm text-slate-500">{r.unit}</td>
+                                    <td className="py-3 px-2 text-sm text-slate-500">{r.reference_range}</td>
+                                    <td className="py-3 px-2 text-sm text-slate-500">{r.unit}</td>
                                   </tr>
                                 )
                             })}
                           </tbody>
                         </table>
                       </div>
-                  ))}
+                    ))}
+
+                  {/* ── Print-only: Footer with Contact Details ── */}
+                  <div className="hidden print:block mt-12 pt-4 border-t border-slate-300 text-center text-[10px] text-slate-400 space-x-3">
+                    {clinic?.phone && <span>Phone: {clinic.phone}</span>}
+                    {clinic?.whatsapp && <span>WhatsApp: {clinic.whatsapp}</span>}
+                    {clinic?.support_email && <span>Email: {clinic.support_email}</span>}
+                    {clinic?.website && <span>Website: {clinic.website}</span>}
+                  </div>
+
+                  {/* ── Screen-only: Print Button ── */}
                   <div className="mt-4 text-right print:hidden">
                     <button onClick={() => handlePrintPatient(patient.id)} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-medium text-sm inline-flex items-center gap-2 hover:bg-slate-800 shadow-sm">
                       Print Report

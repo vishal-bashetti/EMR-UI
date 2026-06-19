@@ -12,8 +12,8 @@ body {
 
 @media print {
   @page {
-    size: A4;
-    margin: 1cm;
+    size: auto;
+    margin: 0mm; /* This removes the browser headers and footers */
   }
   
   /* Hide everything by default in print mode */
@@ -33,7 +33,7 @@ body {
     top: 0;
     width: 100%;
     margin: 0;
-    padding: 0;
+    padding: 20mm; /* Add back padding so content doesn't hit the physical page edge */
   }
 
   /* Force background colors to print */

@@ -9,6 +9,8 @@ export const updateUser = (id: number, data: UserInput): Promise<User> =>
   api.put<User>(`/users/${id}`, data).then((r) => r.data)
 export const deleteUser = (id: number): Promise<{ detail: string }> =>
   api.delete<{ detail: string }>(`/users/${id}`).then((r) => r.data)
+export const updateUserTabs = (id: number, tabs: string[]): Promise<User> =>
+  api.put<User>(`/users/${id}/tabs`, { tab_names: tabs }).then((r) => r.data)
 export const uploadSignature = (id: number, file: File): Promise<{ detail: string }> => {
   const formData = new FormData()
   formData.append('file', file)

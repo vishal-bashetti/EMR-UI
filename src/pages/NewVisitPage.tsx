@@ -7,11 +7,13 @@ import { usePatient } from '../hooks/usePatients'
 import { useMe } from '../hooks/useUsers'
 import { useVitalConfigs, useCreateVisit, useUpdateVisit } from '../hooks/useVisits'
 import { useAppointmentStatuses, useAppointments, useCreateAppointment, useUpdateAppointmentStatus } from '../hooks/useAppointments'
-import { useLabCatalog, useLatestLabResults } from '../hooks/useLabResults'
+import { useLabCatalog, useLatestLabResults, useComboCatalog, useOrderCombo } from '../hooks/useLabResults'
 import { useDrugs, useCreateDrug } from '../hooks/useDrugs'
-import { getLastVisit, getVisitById } from '../api/visits'
+import { getLastVisit, getVisitById, getDiagnosisSuggestions, getTreatmentSuggestions } from '../api/visits'
 import { Icons } from '../components/Icons'
+import { SuggestionInput } from '../components/SuggestionInput'
 import { PrintableVisit } from '../components/PrintableVisit'
+import { AiBot } from '../components/AiBot'
 import { useClinic } from '../hooks/useSettings'
 import type { Drug, PrescriptionInput, VitalConfig, VisitPayload, VisitResponse } from '../types'
 
@@ -396,34 +398,35 @@ function ComplaintsSection({
 // ─── Section: Diagnoses ───────────────────────────────────────────────────────
 
 function DiagnosesSection({
-  diagnoses, onAdd, onRemove, onUpdate,
+  diagnoses, onAdd, onRemove, onUpdate, readOnly,
 }: {
   diagnoses: DiagnosisRow[]
   onAdd: () => void
   onRemove: (i: number) => void
   onUpdate: (i: number, field: keyof DiagnosisRow, val: string) => void
+  readOnly?: boolean
 }) {
   const { t } = useTranslation()
   return (
     <FormSection id="diagnoses" title={t('visit.diagnoses')} icon={Icons.diagnosis} badge={diagnoses.length || undefined}>
       {diagnoses.length > 0 && (
         <div className="space-y-2 mb-1">
-          <div className="grid grid-cols-[1fr_160px_28px] gap-2 px-1">
-            {['Diagnosis', 'Date', ''].map((h, i) => (
+          <div className={`grid ${readOnly ? 'grid-cols-[1fr_160px]' : 'grid-cols-[1fr_160px_28px]'} gap-2 px-1`}>
+            {['Diagnosis', 'Date', ...(readOnly ? [] : [''])].map((h, i) => (
               <span key={i} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{h}</span>
             ))}
           </div>
           {diagnoses.map((d, i) => (
-            <div key={i} className="grid grid-cols-[1fr_160px_28px] gap-2 items-center">
-              <input className={`${smallInputCls} w-full`} value={d.diagnosis} onChange={e => onUpdate(i, 'diagnosis', e.target.value)} placeholder={t('visit.diagnosisPlaceholder')} />
-              <input className={`${smallInputCls} w-full`} type="date" value={d.date} onChange={e => onUpdate(i, 'date', e.target.value)} />
-              <button type="button" onClick={() => onRemove(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">{Icons.x}</button>
+            <div key={i} className={`grid ${readOnly ? 'grid-cols-[1fr_160px]' : 'grid-cols-[1fr_160px_28px]'} gap-2 items-center`}>
+              <SuggestionInput className={`${smallInputCls} w-full`} value={d.diagnosis} onChange={val => onUpdate(i, 'diagnosis', val)} fetchSuggestions={getDiagnosisSuggestions} placeholder={t('visit.diagnosisPlaceholder')} disabled={readOnly} />
+              <input className={`${smallInputCls} w-full`} type="date" value={d.date} onChange={e => onUpdate(i, 'date', e.target.value)} disabled={readOnly} />
+              {!readOnly && <button type="button" onClick={() => onRemove(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">{Icons.x}</button>}
             </div>
           ))}
         </div>
       )}
       {diagnoses.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noDiagnoses')}</p>}
-      <AddRowButton onClick={onAdd} label={t('visit.addDiagnosis')} />
+      {!readOnly && <AddRowButton onClick={onAdd} label={t('visit.addDiagnosis')} />}
     </FormSection>
   )
 }
@@ -431,34 +434,35 @@ function DiagnosesSection({
 // ─── Section: Treatments ─────────────────────────────────────────────────────
 
 function TreatmentsSection({
-  treatments, onAdd, onRemove, onUpdate,
+  treatments, onAdd, onRemove, onUpdate, readOnly,
 }: {
   treatments: TreatmentRow[]
   onAdd: () => void
   onRemove: (i: number) => void
   onUpdate: (i: number, field: keyof TreatmentRow, val: string) => void
+  readOnly?: boolean
 }) {
   const { t } = useTranslation()
   return (
     <FormSection id="treatments" title={t('visit.treatments')} icon={Icons.treatment} badge={treatments.length || undefined}>
       {treatments.length > 0 && (
         <div className="space-y-2 mb-1">
-          <div className="grid grid-cols-[1fr_160px_28px] gap-2 px-1">
-            {['Treatment', 'Due date', ''].map((h, i) => (
+          <div className={`grid ${readOnly ? 'grid-cols-[1fr_160px]' : 'grid-cols-[1fr_160px_28px]'} gap-2 px-1`}>
+            {['Treatment', 'Due date', ...(readOnly ? [] : [''])].map((h, i) => (
               <span key={i} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{h}</span>
             ))}
           </div>
           {treatments.map((tr, i) => (
-            <div key={i} className="grid grid-cols-[1fr_160px_28px] gap-2 items-center">
-              <input className={`${smallInputCls} w-full`} value={tr.treatment} onChange={e => onUpdate(i, 'treatment', e.target.value)} placeholder={t('visit.treatmentPlaceholder')} />
-              <input className={`${smallInputCls} w-full`} type="date" value={tr.due_date} onChange={e => onUpdate(i, 'due_date', e.target.value)} />
-              <button type="button" onClick={() => onRemove(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">{Icons.x}</button>
+            <div key={i} className={`grid ${readOnly ? 'grid-cols-[1fr_160px]' : 'grid-cols-[1fr_160px_28px]'} gap-2 items-center`}>
+              <SuggestionInput className={`${smallInputCls} w-full`} value={tr.treatment} onChange={val => onUpdate(i, 'treatment', val)} fetchSuggestions={getTreatmentSuggestions} placeholder={t('visit.treatmentPlaceholder')} disabled={readOnly} />
+              <input className={`${smallInputCls} w-full`} type="date" value={tr.due_date} onChange={e => onUpdate(i, 'due_date', e.target.value)} disabled={readOnly} />
+              {!readOnly && <button type="button" onClick={() => onRemove(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">{Icons.x}</button>}
             </div>
           ))}
         </div>
       )}
       {treatments.length === 0 && <p className="text-sm text-slate-400 mb-1">{t('visit.noTreatments')}</p>}
-      <AddRowButton onClick={onAdd} label={t('visit.addTreatment')} />
+      {!readOnly && <AddRowButton onClick={onAdd} label={t('visit.addTreatment')} />}
     </FormSection>
   )
 }
@@ -613,24 +617,28 @@ function PrescriptionsSection({
 // ─── Section: Lab Orders ──────────────────────────────────────────────────────
 
 function LabSection({
-  selectedItems, labSearch, showDropdown, labCatalog, labSearchRef, lastLabReports,
-  onSearchChange, onSearchFocus, onAdd, onRemove,
+  selectedItems, selectedCombos, labSearch, showDropdown, labCatalog, comboCatalog, labSearchRef, lastLabReports,
+  onSearchChange, onSearchFocus, onAdd, onRemove, onAddCombo, onRemoveCombo
 }: {
   selectedItems: LabItem[]
+  selectedCombos: LabItem[]
   labSearch: string
   showDropdown: boolean
   labCatalog?: LabItem[]
+  comboCatalog?: LabItem[]
   labSearchRef: React.RefObject<HTMLDivElement | null>
   lastLabReports?: Array<{ id: number; test_name: string; result_value: string | null; unit: string | null; reference_range: string | null; status: string; notes: string | null; ordered_date: string }>
   onSearchChange: (v: string) => void
   onSearchFocus: () => void
   onAdd: (item: LabItem) => void
   onRemove: (id: number) => void
+  onAddCombo: (item: LabItem) => void
+  onRemoveCombo: (id: number) => void
 }) {
   const [showHistory, setShowHistory] = useState(false)
 
   return (
-    <FormSection id="labs" title="Lab Orders" icon={Icons.flask} badge={selectedItems.length || undefined}>
+    <FormSection id="labs" title="Lab Orders" icon={Icons.flask} badge={selectedItems.length + selectedCombos.length || undefined}>
       {/* Previous lab reports collapsible */}
       {lastLabReports && lastLabReports.length > 0 && (
         <div className="mb-4 border border-emerald-200 bg-emerald-50/40 rounded-xl overflow-hidden">
@@ -675,22 +683,41 @@ function LabSection({
           value={labSearch}
           onChange={e => onSearchChange(e.target.value)}
           onFocus={onSearchFocus}
-          placeholder="Search lab tests to order…"
+          placeholder="Search lab tests or combos to order…"
         />
-        {showDropdown && labCatalog && labCatalog.length > 0 && (
+        {showDropdown && ((labCatalog && labCatalog.length > 0) || (comboCatalog && comboCatalog.length > 0)) && (
           <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
-            {labCatalog.map((item: LabItem) => (
-              <button key={item.id} type="button"
-                className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
-                onClick={() => onAdd(item)}
-              >
-                <span className="font-medium text-slate-800">{item.name}</span>
-                {item.price > 0 && <span className="text-xs text-slate-400">₹{item.price.toFixed(2)}</span>}
-              </button>
-            ))}
+            {comboCatalog && comboCatalog.length > 0 && (
+              <>
+                <div className="px-4 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider sticky top-0">Combo Panels</div>
+                {comboCatalog.map((item: LabItem) => (
+                  <button key={`combo-${item.id}`} type="button"
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
+                    onClick={() => onAddCombo(item)}
+                  >
+                    <span className="font-medium text-slate-800">{item.name}</span>
+                    {item.price > 0 && <span className="text-xs text-slate-400">₹{item.price.toFixed(2)}</span>}
+                  </button>
+                ))}
+              </>
+            )}
+            {labCatalog && labCatalog.length > 0 && (
+              <>
+                <div className="px-4 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider sticky top-0">Individual Tests</div>
+                {labCatalog.map((item: LabItem) => (
+                  <button key={`lab-${item.id}`} type="button"
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
+                    onClick={() => onAdd(item)}
+                  >
+                    <span className="font-medium text-slate-800">{item.name}</span>
+                    {item.price > 0 && <span className="text-xs text-slate-400">₹{item.price.toFixed(2)}</span>}
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         )}
-        {showDropdown && labSearch.length >= 1 && labCatalog?.length === 0 && (
+        {showDropdown && labSearch.length >= 1 && labCatalog?.length === 0 && comboCatalog?.length === 0 && (
           <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm text-slate-400">
             No tests found for "{labSearch}"
           </div>
@@ -698,10 +725,20 @@ function LabSection({
       </div>
 
       {/* Selected tests */}
-      {selectedItems.length > 0 ? (
+      {selectedItems.length > 0 || selectedCombos.length > 0 ? (
         <div className="flex flex-wrap gap-2">
+          {selectedCombos.map(item => (
+            <div key={`combo-${item.id}`}
+              className="flex items-center gap-2 bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 px-3 py-1.5 rounded-lg text-sm font-semibold">
+              {item.name}
+              {item.price > 0 && <span className="text-xs text-fuchsia-500 font-normal">₹{item.price.toFixed(0)}</span>}
+              <button type="button" onClick={() => onRemoveCombo(item.id)} className="text-fuchsia-400 hover:text-fuchsia-600 transition-colors">
+                {Icons.x}
+              </button>
+            </div>
+          ))}
           {selectedItems.map(item => (
-            <div key={item.id}
+            <div key={`lab-${item.id}`}
               className="flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-sm font-semibold">
               {item.name}
               {item.price > 0 && <span className="text-xs text-blue-500 font-normal">₹{item.price.toFixed(0)}</span>}
@@ -712,7 +749,7 @@ function LabSection({
           ))}
         </div>
       ) : (
-        <p className="text-sm text-slate-400">{labSearch ? '' : 'Search and select lab tests to order.'}</p>
+        <p className="text-sm text-slate-400">{labSearch ? '' : 'Search and select lab tests or combos to order.'}</p>
       )}
     </FormSection>
   )
@@ -732,6 +769,8 @@ export default function NewVisitPage() {
   const { data: clinic } = useClinic()
   const doctorIdFromUrl = searchParams.get('doctor_id') ? Number(searchParams.get('doctor_id')) : null
   const doctorId = doctorIdFromUrl ?? me?.id ?? 0
+  
+  const canManageClinical = me?.role?.name === 'Admin' || me?.role?.permissions?.some(p => p.name === 'manage_clinical') || false
 
   const [printType, setPrintType] = useState<'prescription' | 'report' | null>(null)
 
@@ -761,6 +800,8 @@ export default function NewVisitPage() {
     return null
   })
 
+  const [status, setStatus] = useState('Open')
+
   useEffect(() => {
     if (appointmentId && patientAppointments) {
       const app = patientAppointments.find(a => a.id === appointmentId)
@@ -773,8 +814,8 @@ export default function NewVisitPage() {
         }
       }
     }
-  }, [appointmentId, patientAppointments, editingEncounterId, updateAppointmentStatus])
-  const [status, setStatus] = useState('Open')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appointmentId, patientAppointments, editingEncounterId])
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
   const [quickNotes, setQuickNotes] = useState('')
@@ -784,6 +825,7 @@ export default function NewVisitPage() {
   const [diagnoses, setDiagnoses] = useState<DiagnosisRow[]>([])
   const [treatments, setTreatments] = useState<TreatmentRow[]>([])
   const [selectedLabs, setSelectedLabs] = useState<LabItem[]>([])
+  const [selectedCombos, setSelectedCombos] = useState<LabItem[]>([])
   const [prescriptions, setPrescriptions] = useState<PrescriptionInput[]>([])
   const [saveError, setSaveError] = useState('')
   const [showSaveModal, setShowSaveModal] = useState(false)
@@ -863,6 +905,8 @@ export default function NewVisitPage() {
   const [showLabDropdown, setShowLabDropdown] = useState(false)
   const labSearchRef = useRef<HTMLDivElement>(null)
   const { data: labCatalog } = useLabCatalog(labSearch)
+  const { data: comboCatalog } = useComboCatalog(labSearch)
+  const orderCombo = useOrderCombo()
 
   // close dropdowns on outside click
   useEffect(() => {
@@ -965,6 +1009,11 @@ export default function NewVisitPage() {
       } else {
         await createVisit.mutateAsync(payload)
       }
+
+      if (selectedCombos.length > 0) {
+        await Promise.all(selectedCombos.map(combo => orderCombo.mutateAsync({ patient_id: patientId, combo_id: combo.id })))
+      }
+
       navigate(`/patients/${patientId}`)
     } catch (e) {
       setSaveError(isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || t('visit.failedSave')) : t('visit.failedSave'))
@@ -1106,8 +1155,8 @@ export default function NewVisitPage() {
       advice: advice,
     },
     vitals: Object.entries(vitals).filter(([_, val]) => val).map(([k, v]) => {
-      const cfg = vitalConfigs?.find(c => c.id.toString() === k || c.key === k)
-      return { name: cfg?.name || k, unit: cfg?.unit || '', value: Number(v) }
+      const cfg = vitalConfigs?.find(c => c.id.toString() === k)
+      return { name: cfg?.name || k, unit: '', value: Number(v) }
     }),
     complaints,
     diagnoses,
@@ -1241,6 +1290,7 @@ export default function NewVisitPage() {
             onAdd={addDiagnosis}
             onRemove={removeDiagnosis}
             onUpdate={updateDiagnosis}
+            readOnly={!canManageClinical}
           />
 
           <TreatmentsSection
@@ -1248,6 +1298,7 @@ export default function NewVisitPage() {
             onAdd={addTreatment}
             onRemove={removeTreatment}
             onUpdate={updateTreatment}
+            readOnly={!canManageClinical}
           />
 
           <PrescriptionsSection
@@ -1268,15 +1319,23 @@ export default function NewVisitPage() {
 
           <LabSection
             selectedItems={selectedLabs}
+            selectedCombos={selectedCombos}
             labSearch={labSearch}
             showDropdown={showLabDropdown}
             labCatalog={labCatalog as LabItem[] | undefined}
+            comboCatalog={comboCatalog as LabItem[] | undefined}
             labSearchRef={labSearchRef}
             lastLabReports={lastLabReports}
             onSearchChange={v => { setLabSearch(v); setShowLabDropdown(true) }}
             onSearchFocus={() => labSearch.length >= 1 && setShowLabDropdown(true)}
             onAdd={addLabItem}
             onRemove={removeLabItem}
+            onAddCombo={(item) => {
+              if (!selectedCombos.find(c => c.id === item.id)) setSelectedCombos(c => [...c, item])
+              setLabSearch('')
+              setShowLabDropdown(false)
+            }}
+            onRemoveCombo={(id) => setSelectedCombos(c => c.filter(x => x.id !== id))}
           />
 
           {saveError && (
@@ -1289,6 +1348,8 @@ export default function NewVisitPage() {
           <div className="h-8" />
         </form>
       </div>
+
+      {patientId ? <AiBot patientId={patientId} /> : null}
 
       {showSaveModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">

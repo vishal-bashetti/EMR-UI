@@ -23,6 +23,8 @@ export interface User {
   role_id: number | null
   role?: Role | null
   signature_path?: string | null
+  has_signature?: boolean
+  visible_tabs?: string[]
 }
 
 export interface UserInput {
@@ -119,9 +121,11 @@ export interface Appointment {
   appointment_type_id: number | null
   appointment_time: string
   status: string
+  token_number?: string | null
   patient?: Patient
   doctor?: User
   appointment_type?: AppointmentType | null
+  last_visit_date?: string | null
 }
 
 export interface AppointmentInput {
@@ -137,6 +141,9 @@ export interface AppointmentsQuery {
   doctor_id?: number
   appointment_date?: string
   status?: string
+  search?: string
+  skip?: number
+  limit?: number
 }
 
 // ─── Billing ───────────────────────────────────────────────────────────────
@@ -242,6 +249,7 @@ export interface PrescriptionInput {
 export interface Encounter {
   id: number
   visit_number: number
+  appointment_id?: number | null
   encounter_date: string
   status: string
   reason?: string | null
@@ -297,6 +305,9 @@ export interface VisitPayload {
   treatments: Treatment[]
   lab_test_catalogs: number[]
   prescriptions: PrescriptionInput[]
+  followup_date?: string
+  followup_days?: number
+  followup_months?: number
 }
 
 // ─── Lab Tests & Catalog ──────────────────────────────────────────────────────
@@ -316,6 +327,7 @@ export interface LabComboCatalogItem {
   id: number
   name: string
   description: string | null
+  test_ids: number[]
   price: number
   is_active: boolean
 }
@@ -492,6 +504,9 @@ export interface VisitPayload {
   treatments: Treatment[]
   lab_test_catalogs: number[]
   prescriptions: PrescriptionInput[]
+  followup_date?: string
+  followup_days?: number
+  followup_months?: number
 }
 
 // ─── Lab Tests & Catalog ──────────────────────────────────────────────────────
@@ -511,6 +526,7 @@ export interface LabComboCatalogItem {
   id: number
   name: string
   description: string | null
+  test_ids: number[]
   price: number
   is_active: boolean
 }
@@ -612,6 +628,26 @@ export interface Clinic {
   logo_path: string;
 }
 
+// ─── Messaging ─────────────────────────────────────────────────────────────
+
+export interface MessageCreate {
+  receiver_id: number
+  subject: string
+  body: string
+  patient_id?: number | null
+}
+
+export interface Message {
+  id: number
+  sender_id: number
+  receiver_id: number
+  subject: string
+  body: string
+  patient_id: number | null
+  status: string
+  created_at: string
+}
+
 export interface ClinicInput {
   name: string;
   address: string;
@@ -621,3 +657,10 @@ export interface ClinicInput {
   website: string;
   app_link: string;
 }
+export interface LabComboCatalogInput {
+  name: string
+  test_ids: number[]
+  price: number
+  is_active: boolean
+}
+

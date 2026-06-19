@@ -18,21 +18,34 @@ api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
-    if (error.response?.status === 401 && original && !original._retry) {
-      original._retry = true
-      const refresh = localStorage.getItem('refresh_token')
-      if (refresh) {
-        try {
-          const { data } = await axios.post<TokenResponse>('/api/auth/refresh', { refresh_token: refresh })
-          localStorage.setItem('access_token', data.access_token)
-          localStorage.setItem('refresh_token', data.refresh_token)
-          original.headers.Authorization = `Bearer ${data.access_token}`
-          return api(original)
-        } catch {
-          localStorage.clear()
-          window.location.href = '/login'
+    if (error.response?.status === 401 && original) {
+      // Ignore 401s from the login endpoint itself
+      if (original.url?.includes('/auth/login')) {
+        return Promise.reject(error)
+      }
+
+      if (!original._retry) {
+        original._retry = true
+        const refresh = localStorage.getItem('refresh_token')
+        if (refresh) {
+          try {
+            const { data } = await axios.post<TokenResponse>('/api/auth/refresh', { refresh_token: refresh })
+            localStorage.setItem('access_token', data.access_token)
+            localStorage.setItem('refresh_token', data.refresh_token)
+            original.headers.Authorization = `Bearer ${data.access_token}`
+            return api(original)
+          } catch {
+            // Refresh failed, fall through to logout
+          }
         }
       }
+      
+      // Token is missing, expired, or refresh failed
+      localStorage.clear()
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+      return Promise.reject(error)
     } else if (error.response?.status === 403) {
       toast.error('User permission denied.')
     } else if (error.response?.status === 404) {

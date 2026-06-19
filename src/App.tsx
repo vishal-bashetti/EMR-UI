@@ -15,9 +15,19 @@ import SettingsPage from './pages/SettingsPage'
 import LabDashboardPage from './pages/LabDashboardPage'
 import PharmacyPage from './pages/PharmacyPage'
 import AdminAppointmentsPage from './pages/AdminAppointmentsPage'
+import ReportsPage from './pages/ReportsPage'
+import MessagesPage from './pages/MessagesPage'
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+  defaultOptions: { 
+    queries: { 
+      retry: 1, 
+      staleTime: 0,
+      refetchOnMount: true,
+      refetchOnWindowFocus: true,
+      refetchInterval: 3 * 60 * 1000 // Refresh data every 3 minutes
+    } 
+  },
 })
 
 export default function App() {
@@ -45,6 +55,8 @@ export default function App() {
             <Route path="billing" element={<BillingPage />} />
             <Route path="labs" element={<LabDashboardPage />} />
             <Route path="pharmacy" element={<PharmacyPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="messages" element={<MessagesPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

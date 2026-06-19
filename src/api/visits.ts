@@ -21,3 +21,9 @@ export const createVisit = (data: VisitPayload): Promise<Encounter> =>
 
 export const updateVisit = (id: number, data: VisitPayload): Promise<Encounter> =>
   api.put<Encounter>(`/visits/${id}`, data).then((r) => r.data)
+
+export const getDiagnosisSuggestions = (q: string) =>
+  api.get<{ text: string; count: number }[]>('/visits/suggestions/diagnoses', { params: { q } }).then(r => r.data)
+
+export const getTreatmentSuggestions = (q: string) =>
+  api.get<{ text: string; count: number }[]>('/visits/suggestions/treatments', { params: { q } }).then(r => r.data)

@@ -3,7 +3,11 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { usePatient } from '../hooks/usePatients'
 import { useVisitHistory } from '../hooks/useVisits'
-import { useLabResults, useUpdateLabResult } from '../hooks/useLabResults'
+import { useLatestLabResults, useUpdateLabResult } from '../hooks/useLabResults'
+import { useClinic } from '../hooks/useSettings'
+import { PrintableVisit } from '../components/PrintableVisit'
+
+import { LabTestGraph } from '../components/LabTestGraph'
 import { useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
 import { useMe } from '../hooks/useUsers'
 import { Icons } from '../components/Icons'
@@ -322,11 +326,12 @@ export function LatestVisitSummary({ visit, patientId, doctorId }: { visit: Visi
 
 // ─── Visit Card (history timeline) ───────────────────────────────────────────
 
-function VisitCard({ visit, index, patientId, doctorId }: {
+function VisitCard({ visit, index, patientId, doctorId, onPrint }: {
   visit: VisitResponse
   index: number
   patientId?: number
   doctorId?: number
+  onPrint?: (visit: VisitResponse, type: 'report' | 'prescription') => void
 }) {
   const { encounter, vitals, complaints, diagnoses, treatments, prescriptions } = visit
   const prescriptionItems = prescriptions?.flatMap(p => p.items || []) || []
@@ -343,10 +348,12 @@ function VisitCard({ visit, index, patientId, doctorId }: {
       <div className="absolute -left-[25px] top-5 w-3 h-3 rounded-full border-2 border-white shadow-sm bg-blue-500" />
 
       {/* Header – always visible */}
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-5 py-3.5 text-left"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o); } }}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left cursor-pointer"
       >
         <div className="flex items-center gap-3 min-w-0">
           <div>
@@ -381,6 +388,29 @@ function VisitCard({ visit, index, patientId, doctorId }: {
               {Icons.edit} Continue
             </Link>
           )}
+          {/* Print buttons */}
+          {onPrint && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); onPrint(visit, 'report') }}
+                className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-white hover:bg-slate-50 px-2 py-1 rounded border border-slate-200 transition-colors"
+                title="Print Report"
+              >
+                {Icons.print} Report
+              </button>
+              {prescriptionItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); onPrint(visit, 'prescription') }}
+                  className="flex items-center gap-1 text-[10px] font-semibold text-indigo-500 bg-white hover:bg-indigo-50 px-2 py-1 rounded border border-indigo-200 transition-colors"
+                  title="Print Prescription"
+                >
+                  {Icons.print} Rx
+                </button>
+              )}
+            </div>
+          )}
           {/* summary chips */}
           {[
             complaints.length ? `${complaints.length} complaint${complaints.length > 1 ? 's' : ''}` : null,
@@ -395,7 +425,7 @@ function VisitCard({ visit, index, patientId, doctorId }: {
             <polyline points="6 9 12 15 18 9"/>
           </svg>
         </div>
-      </button>
+      </div>
 
       {/* Expanded body */}
       {open && hasContent ? (
@@ -595,11 +625,12 @@ function LabResultUpdateModal({
 
 // ─── Tab content components ───────────────────────────────────────────────────
 
-function VisitHistoryTab({ visits, loading, patientId, doctorId }: {
+function VisitHistoryTab({ visits, loading, patientId, doctorId, onPrint }: {
   visits?: VisitResponse[]
   loading: boolean
   patientId: number
   doctorId?: number
+  onPrint?: (visit: VisitResponse, type: 'report' | 'prescription') => void
 }) {
   if (loading) return <Spinner />
   if (!visits?.length) {
@@ -615,7 +646,7 @@ function VisitHistoryTab({ visits, loading, patientId, doctorId }: {
     // Timeline: left border line
     <div className="relative pl-8 border-l-2 border-slate-100 ml-2 space-y-4">
       {visits.map((visit, i) => (
-        <VisitCard key={visit.encounter.id} visit={visit} index={i} patientId={patientId} doctorId={doctorId} />
+        <VisitCard key={visit.encounter.id} visit={visit} index={i} patientId={patientId} doctorId={doctorId} onPrint={onPrint} />
       ))}
       {/* Start-of-timeline marker */}
       <div className="absolute bottom-0 -left-[5px] w-2.5 h-2.5 rounded-full bg-slate-200 border-2 border-white" />
@@ -627,6 +658,30 @@ function VisitHistoryTab({ visits, loading, patientId, doctorId }: {
       </Link>
     </div>
   )
+}
+
+function isOutOfRange(valStr: string | null, refStr: string | null): boolean {
+  if (!valStr || !refStr) return false
+  const val = parseFloat(valStr)
+  if (isNaN(val)) return false
+
+  if (refStr.includes('-')) {
+    const parts = refStr.split('-')
+    if (parts.length >= 2) {
+      const min = parseFloat(parts[0].replace(/[^\d.-]/g, ''))
+      const max = parseFloat(parts[1].replace(/[^\d.-]/g, ''))
+      if (!isNaN(min) && !isNaN(max)) return val < min || val > max
+    }
+  }
+  if (refStr.includes('<')) {
+    const max = parseFloat(refStr.replace(/[^\d.-]/g, ''))
+    if (!isNaN(max)) return val >= max
+  }
+  if (refStr.includes('>')) {
+    const min = parseFloat(refStr.replace(/[^\d.-]/g, ''))
+    if (!isNaN(min)) return val <= min
+  }
+  return false
 }
 
 function LabResultsTab({ results, loading, onEdit }: {
@@ -648,30 +703,40 @@ function LabResultsTab({ results, loading, onEdit }: {
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-50">
-          {results.map(lab => (
-            <tr key={lab.id} className="hover:bg-slate-50/60 transition-colors group">
-              <td className="px-4 py-3.5 pl-5 font-semibold text-slate-800">{lab.test_name}</td>
-              <td className="px-4 py-3.5">
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${STATUS_LAB[lab.status] || 'bg-slate-100 text-slate-500'}`}>
-                  {lab.status}
-                </span>
-              </td>
-              <td className="px-4 py-3.5 text-slate-700 font-medium">{lab.result_value || <span className="text-slate-300">—</span>}</td>
-              <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.unit || <span className="text-slate-300">—</span>}</td>
-              <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.reference_range || <span className="text-slate-300">—</span>}</td>
-              <td className="px-4 py-3.5 text-slate-500 text-xs">
-                {new Date(lab.ordered_date).toLocaleDateString('en-GB')}
-              </td>
-              <td className="px-4 py-3.5 pr-5 text-right">
-                <button
-                  onClick={() => onEdit(lab)}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                >
-                  Update
-                </button>
-              </td>
-            </tr>
-          ))}
+          {results.map(lab => {
+            const outOfRange = isOutOfRange(lab.result_value, lab.reference_range)
+            return (
+              <tr key={lab.id} className={`transition-colors group ${outOfRange ? 'bg-red-50/50 hover:bg-red-50/70' : 'hover:bg-slate-50/60'}`}>
+                <td className="px-4 py-3.5 pl-5 font-semibold text-slate-800">
+                  <div className="flex items-center gap-2">
+                    {lab.test_name}
+                    <LabTestGraph patientId={lab.patient_id} testName={lab.test_name} referenceRange={lab.reference_range} unit={lab.unit} />
+                  </div>
+                </td>
+                <td className="px-4 py-3.5">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${STATUS_LAB[lab.status] || 'bg-slate-100 text-slate-500'}`}>
+                    {lab.status}
+                  </span>
+                </td>
+                <td className={`px-4 py-3.5 font-medium ${outOfRange ? 'text-red-600 font-bold' : 'text-slate-700'}`}>
+                  {lab.result_value || <span className="text-slate-300">—</span>} {outOfRange && '*'}
+                </td>
+                <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.unit || <span className="text-slate-300">—</span>}</td>
+                <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.reference_range || <span className="text-slate-300">—</span>}</td>
+                <td className="px-4 py-3.5 text-slate-500 text-xs">
+                  {new Date(lab.ordered_date).toLocaleDateString('en-GB')}
+                </td>
+                <td className="px-4 py-3.5 pr-5 text-right">
+                  <button
+                    onClick={() => onEdit(lab)}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    Update
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -792,14 +857,20 @@ export default function PatientDetailPage() {
   const patientId = Number(id)
   const [activeTab, setActiveTab] = useState<Tab>('visits')
   const [editingLab, setEditingLab] = useState<LabResult | null>(null)
+  const [printVisit, setPrintVisit] = useState<{ visit: VisitResponse; type: 'report' | 'prescription' } | null>(null)
 
   const { data: patient, isLoading: loadingPatient } = usePatient(patientId)
   const { data: visitHistory, isLoading: loadingVisits } = useVisitHistory(patientId, 20)
-  const { data: labResults, isLoading: loadingLabs } = useLabResults(patientId)
+  const { data: labResults, isLoading: loadingLabs } = useLatestLabResults(patientId)
   const { data: invoices, isLoading: loadingInvoices } = useInvoices(patientId)
   const { data: me } = useMe()
+  const { data: clinic } = useClinic()
   const updateLab = useUpdateLabResult()
   const updateInvoiceStatus = useUpdateInvoiceStatus()
+
+  const handlePrint = (visit: VisitResponse, type: 'report' | 'prescription') => {
+    setPrintVisit({ visit, type })
+  }
 
   const handleLabSave = async (form: LabResultInput) => {
     if (!editingLab) return
@@ -904,6 +975,7 @@ export default function PatientDetailPage() {
             loading={loadingVisits}
             patientId={patientId}
             doctorId={me?.id}
+            onPrint={handlePrint}
           />
         )}
         {activeTab === 'labs' && (
@@ -928,6 +1000,17 @@ export default function PatientDetailPage() {
           lab={editingLab}
           onClose={() => setEditingLab(null)}
           onSave={handleLabSave}
+        />
+      )}
+
+      {printVisit && patient && (
+        <PrintableVisit
+          visit={printVisit.visit}
+          patient={patient}
+          clinic={clinic}
+          doctor={me}
+          type={printVisit.type}
+          onReady={() => window.print()}
         />
       )}
     </div>

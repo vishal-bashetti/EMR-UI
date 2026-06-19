@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -59,10 +59,31 @@ export default function PatientsPage() {
   const [form, setForm] = useState<PatientFormState>(EMPTY_FORM)
   const [formError, setFormError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<Patient | null>(null)
+  const [visibleCount, setVisibleCount] = useState(20)
+  const observerTarget = useRef<HTMLDivElement>(null)
 
   const { data: patients, isLoading } = usePatients(search || undefined)
   const create = useCreatePatient()
   const remove = useDeletePatient()
+
+  useEffect(() => {
+    setVisibleCount(20)
+  }, [search])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount(prev => prev + 20)
+        }
+      },
+      { root: null, rootMargin: '0px', threshold: 0.1 }
+    )
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current)
+    }
+    return () => observer.disconnect()
+  }, [])
 
   const set = (key: keyof PatientFormState) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }))
@@ -130,7 +151,7 @@ export default function PatientsPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden max-h-[60vh] overflow-y-auto relative">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="animate-spin w-6 h-6 text-blue-500" viewBox="0 0 24 24" fill="none">
@@ -140,8 +161,8 @@ export default function PatientsPage() {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50">
+            <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-100 shadow-sm">
+              <tr>
                 {[t('patients.colPatient'), t('patients.colDob'), t('patients.colGender'), t('patients.colContact'), t('patients.colBloodGroup'), ''].map((h, i) => (
                   <th key={i} className="text-left px-5 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6 last:pr-6">
                     {h}
@@ -150,7 +171,7 @@ export default function PatientsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {patients?.map((p) => {
+              {patients?.slice(0, visibleCount).map((p) => {
                 const name = `${p.first_name} ${p.last_name}`
                 return (
                   <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
@@ -220,6 +241,9 @@ export default function PatientsPage() {
               )}
             </tbody>
           </table>
+        )}
+        {patients && visibleCount < patients.length && (
+          <div ref={observerTarget} className="h-4 w-full" />
         )}
       </div>
 

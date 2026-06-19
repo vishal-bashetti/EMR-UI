@@ -14,7 +14,7 @@ import {
 import { usePatients, useCreatePatient } from '../hooks/usePatients'
 import { useDoctors } from '../hooks/useUsers'
 import { useSettings } from '../hooks/useSettings'
-import { useCreateInvoice } from '../hooks/useBilling'
+import { useCreateInvoice, useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
 import { InvoiceModal } from '../components/InvoiceModal'
 import type { Appointment, AppointmentInput, Patient } from '../types'
 
@@ -288,6 +288,9 @@ export default function AppointmentsPage() {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
   
   const createInvoice = useCreateInvoice()
+  const { data: invoices } = useInvoices(undefined, selectedDate, selectedDate)
+  const updateInvoiceStatus = useUpdateInvoiceStatus()
+
   const [showCreatePatient, setShowCreatePatient] = useState(false)
   const [patientForm, setPatientForm] = useState<NewPatientForm>(EMPTY_PATIENT_FORM)
 
@@ -541,7 +544,36 @@ export default function AppointmentsPage() {
                                 </div>
                               </div>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                              {(() => {
+                                const apptInvoice = invoices?.find(inv => inv.appointment_id === a.id || (inv.patient_id === a.patient_id && !inv.appointment_id))
+                                if (apptInvoice) {
+                                  const isPaid = apptInvoice.status.toLowerCase() === 'paid'
+                                  return (
+                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                      <span style={{ fontSize: 9, fontWeight: 800, padding: '3px 6px', borderRadius: 12, backgroundColor: isPaid ? '#ecfdf5' : '#fffbeb', color: isPaid ? '#059669' : '#d97706', border: `1px solid ${isPaid ? '#a7f3d0' : '#fde68a'}` }}>
+                                        ₹{apptInvoice.amount}
+                                      </span>
+                                      {!isPaid && (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); updateInvoiceStatus.mutate({ id: apptInvoice.id, status: 'Paid' }) }}
+                                          style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 12, backgroundColor: '#4361ee', color: 'white', border: 'none', cursor: 'pointer' }}
+                                        >Pay</button>
+                                      )}
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setBillApptId(a.id) }}
+                                        style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 12, backgroundColor: '#f1f5f9', color: '#475569', border: 'none', cursor: 'pointer' }}
+                                      >Edit</button>
+                                    </div>
+                                  )
+                                }
+                                return (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setBillApptId(a.id) }}
+                                    style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 12, backgroundColor: '#f1f5f9', color: '#475569', border: 'none', cursor: 'pointer' }}
+                                  >+ Bill</button>
+                                )
+                              })()}
                               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 9px', borderRadius: 20, backgroundColor: `${sc}18`, color: sc }}>
                                 {a.status}
                               </span>

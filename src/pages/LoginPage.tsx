@@ -6,20 +6,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { login } from '../api/auth'
 import { getMe } from '../api/users'
+import { useClinic } from '../hooks/useSettings'
 import useAuthStore from '../store/authStore'
 import { Icons } from '../components/Icons'
 
-interface DemoUser {
-  username: string
-  password: string
-  roleKey: string
-}
-
-const DEMO_USERS: DemoUser[] = [
-  { username: 'admin', password: 'admin123', roleKey: 'login.roleAdmin' },
-  { username: 'doctor', password: 'doctor123', roleKey: 'login.roleDoctor' },
-  { username: 'frontdesk', password: 'frontdesk123', roleKey: 'login.roleFrontDesk' },
-]
 
 export default function LoginPage() {
   const { t } = useTranslation()
@@ -30,6 +20,7 @@ export default function LoginPage() {
   const { setTokens, setUser } = useAuthStore()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { data: clinic } = useClinic()
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -52,11 +43,6 @@ export default function LoginPage() {
     }
   }
 
-  const fillDemo = (u: DemoUser) => {
-    setUsername(u.username)
-    setPassword(u.password)
-    setError('')
-  }
 
   return (
     <div className="min-h-screen flex">
@@ -70,12 +56,18 @@ export default function LoginPage() {
 
         <div className="relative">
           <div className="flex items-center gap-3 mb-16">
-            <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center text-white">
-              {Icons.heartbeat}
+            <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center text-white overflow-hidden shrink-0">
+              {clinic?.logo_path ? (
+                <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Logo" className="w-full h-full object-cover bg-white" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+              ) : (
+                Icons.heartbeat
+              )}
             </div>
             <div>
-              <p className="text-white font-bold text-xl leading-none">{t('common.appName')}</p>
-              <p className="text-slate-400 text-xs font-medium tracking-wide mt-0.5">{t('common.tagline')}</p>
+              <p className="text-white font-bold text-xl leading-none">{clinic?.name || t('common.appName')}</p>
+              <p className="text-slate-400 text-xs font-medium tracking-wide mt-0.5 truncate max-w-[250px]">
+                {clinic?.address || clinic?.phone || t('common.tagline')}
+              </p>
             </div>
           </div>
 
@@ -107,10 +99,14 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 mb-10">
-            <div className="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center text-white">
-              {Icons.heartbeat}
+            <div className="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center text-white overflow-hidden shrink-0">
+              {clinic?.logo_path ? (
+                <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Logo" className="w-full h-full object-cover bg-white" onError={(e) => { e.currentTarget.style.display = 'none' }} />
+              ) : (
+                Icons.heartbeat
+              )}
             </div>
-            <p className="text-slate-900 font-bold text-xl">{t('common.appName')}</p>
+            <p className="text-slate-900 font-bold text-xl truncate">{clinic?.name || t('common.appName')}</p>
           </div>
 
           <h1 className="text-2xl font-bold text-slate-900 mb-1">{t('login.welcomeBack')}</h1>
@@ -125,6 +121,7 @@ export default function LoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoFocus
+                autoComplete="username"
                 placeholder={t('login.usernamePlaceholder')}
                 className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow bg-white"
               />
@@ -137,6 +134,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
                 placeholder={t('login.passwordPlaceholder')}
                 className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow bg-white"
               />
@@ -168,25 +166,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Demo accounts */}
-          <div className="mt-8">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">{t('login.demoAccounts')}</p>
-            <div className="space-y-2">
-              {DEMO_USERS.map((u) => (
-                <button
-                  key={u.username}
-                  onClick={() => fillDemo(u)}
-                  className="w-full flex items-center justify-between px-4 py-2.5 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:bg-blue-50/50 transition-all text-left group"
-                >
-                  <div>
-                    <span className="text-sm font-medium text-slate-700">{u.username}</span>
-                    <span className="text-xs text-slate-400 ml-2">{t(u.roleKey)}</span>
-                  </div>
-                  <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">{t('login.clickToFill')}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>

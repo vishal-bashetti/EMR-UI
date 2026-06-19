@@ -15,3 +15,6 @@ export const updatePatient = (id: number, data: PatientInput): Promise<Patient> 
 
 export const deletePatient = (id: number): Promise<{ detail: string }> =>
   api.delete<{ detail: string }>(`/patients/${id}`).then((r) => r.data)
+
+export const getPatientAiSummary = (id: number): Promise<{ summary_text: string; id: number; patient_id: number; last_updated_at: string }> =>
+  api.get<{ summary_text: string; id: number; patient_id: number; last_updated_at: string }>(`/patients/${id}/ai_summary`).then((r) => r.data)

@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import {
   useUsers, useCreateUser, useDeleteUser, useUploadSignature,
   useRoles, useCreateRole, useUpdateRole, useDeleteRole,
-  usePermissions, useCreatePermission,
+  usePermissions, useCreatePermission, useUpdateUserTabs
 } from '../hooks/useUsers'
 import { useAllDrugs, useCreateDrug, useUpdateDrug } from '../hooks/useDrugs'
-import { useLabCatalog, useCreateLabCatalogItem } from '../hooks/useLabResults'
+import { useLabCatalog, useCreateLabCatalogItem, useUpdateLabCatalogItem, useDeleteLabCatalogItem, useComboCatalog, useCreateComboCatalogItem, useUpdateComboCatalogItem, useDeleteComboCatalogItem } from '../hooks/useLabResults'
 import { useAppointmentStatuses, useCreateAppointmentStatus } from '../hooks/useAppointments'
 import { useClinic, useUpdateClinic, useUploadClinicLogo } from '../hooks/useSettings'
 import { Icons } from '../components/Icons'
@@ -93,6 +93,27 @@ function UsersTab() {
     }
   }
 
+  // Manage Tabs
+  const [tabsUser, setTabsUser] = useState<User | null>(null)
+  const [selectedTabs, setSelectedTabs] = useState<string[]>([])
+  const updateTabs = useUpdateUserTabs()
+  const ALL_TABS = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'patients', label: 'Patients' },
+    { id: 'appointments', label: 'Appointments' },
+    { id: 'billing', label: 'Billing' },
+    { id: 'labs', label: 'Labs' },
+    { id: 'pharmacy', label: 'Pharmacy' },
+    { id: 'reports', label: 'Reports' },
+    { id: 'settings', label: 'Settings' }
+  ]
+
+  const handleSaveTabs = async () => {
+    if (!tabsUser) return
+    await updateTabs.mutateAsync({ id: tabsUser.id, tabs: selectedTabs })
+    setTabsUser(null)
+  }
+
   return (
     <div className="space-y-5">
       <SectionCard
@@ -155,6 +176,9 @@ function UsersTab() {
                   ]}
                   actions={
                     <div className="flex justify-end gap-3">
+                      <button onClick={() => { setTabsUser(u); setSelectedTabs(u.visible_tabs || []) }} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                        Manage Tabs
+                      </button>
                       {(u.role?.name?.toLowerCase().includes('doctor') || u.role?.name?.toLowerCase().includes('lab')) && (
                         <button onClick={() => setSignatureUser(u)} className="text-xs text-blue-500 hover:text-blue-700 font-medium">
                           {u.signature_path ? 'Edit Signature' : 'Add Signature'}
@@ -217,6 +241,58 @@ function UsersTab() {
                   {uploadSignature.isPending ? 'Saving...' : 'Save Signature'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Tabs Modal */}
+      {tabsUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+              <h2 className="text-lg font-bold text-slate-800">Manage Tabs - {tabsUser.username}</h2>
+              <button onClick={() => setTabsUser(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-slate-500 mb-4">Select which navigation tabs are visible to this user.</p>
+              <div className="grid grid-cols-2 gap-3 max-h-80 overflow-y-auto">
+                {ALL_TABS.map(tab => (
+                  <label key={tab.id} className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${
+                    selectedTabs.includes(tab.id) ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      className="hidden"
+                      checked={selectedTabs.includes(tab.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedTabs(prev => [...prev, tab.id])
+                        else setSelectedTabs(prev => prev.filter(t => t !== tab.id))
+                      }}
+                    />
+                    <span className={`text-sm font-medium ${selectedTabs.includes(tab.id) ? 'text-blue-700' : 'text-slate-700'}`}>
+                      {tab.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setTabsUser(null)}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveTabs}
+                disabled={updateTabs.isPending}
+                className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60 transition-colors"
+              >
+                {updateTabs.isPending ? 'Saving...' : 'Save Tabs'}
+              </button>
             </div>
           </div>
         </div>
@@ -525,19 +601,48 @@ function DrugsTab() {
 function LabCatalogTab() {
   const { t } = useTranslation()
   const [showAdd, setShowAdd] = useState(false)
+  const [editingItemId, setEditingItemId] = useState<number | null>(null)
   const [form, setForm] = useState({ name: '', description: '', price: '' })
   const { data: catalog, isLoading } = useLabCatalog()
   const createItem = useCreateLabCatalogItem()
+  const updateItem = useUpdateLabCatalogItem()
+  const deleteItem = useDeleteLabCatalogItem()
+
+  const [showAddCombo, setShowAddCombo] = useState(false)
+  const [editingComboId, setEditingComboId] = useState<number | null>(null)
+  const [comboForm, setComboForm] = useState<{name: string, price: string, test_ids: number[]}>({ name: '', price: '', test_ids: [] })
+  const { data: comboCatalog, isLoading: isComboLoading } = useComboCatalog()
+  const createCombo = useCreateComboCatalogItem()
+  const updateCombo = useUpdateComboCatalogItem()
+  const deleteCombo = useDeleteComboCatalogItem()
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    await createItem.mutateAsync({ name: form.name, description: form.description || null, price: Number(form.price) || 0, is_active: true })
+    if (editingItemId) {
+      await updateItem.mutateAsync({ id: editingItemId, data: { name: form.name, description: form.description || null, price: Number(form.price) || 0, is_active: true } })
+    } else {
+      await createItem.mutateAsync({ name: form.name, description: form.description || null, price: Number(form.price) || 0, is_active: true })
+    }
     setForm({ name: '', description: '', price: '' })
     setShowAdd(false)
+    setEditingItemId(null)
+  }
+
+  const handleComboSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (editingComboId) {
+      await updateCombo.mutateAsync({ id: editingComboId, data: { name: comboForm.name, price: Number(comboForm.price) || 0, test_ids: comboForm.test_ids, is_active: true } })
+    } else {
+      await createCombo.mutateAsync({ name: comboForm.name, price: Number(comboForm.price) || 0, test_ids: comboForm.test_ids, is_active: true })
+    }
+    setComboForm({ name: '', price: '', test_ids: [] })
+    setShowAddCombo(false)
+    setEditingComboId(null)
   }
 
   return (
-    <SectionCard
+    <div className="space-y-6">
+      <SectionCard
       title={t('settings.labCatalogCount', { count: catalog?.length ?? 0 })}
       action={
         <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
@@ -560,9 +665,9 @@ function LabCatalogTab() {
             <input className={inputCls} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder={t('settings.descriptionPlaceholder')} />
           </div>
           <div className="col-span-3 flex justify-end gap-2">
-            <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
-            <button type="submit" disabled={createItem.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
-              {createItem.isPending ? t('common.adding') : t('settings.addTest')}
+            <button type="button" onClick={() => { setShowAdd(false); setEditingItemId(null); setForm({ name: '', description: '', price: '' }); }} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
+            <button type="submit" disabled={createItem.isPending || updateItem.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
+              {createItem.isPending || updateItem.isPending ? t('common.saving', 'Saving...') : (editingItemId ? t('common.save', 'Save Changes') : t('settings.addTest'))}
             </button>
           </div>
         </form>
@@ -588,15 +693,152 @@ function LabCatalogTab() {
                     {item.is_active ? t('common.active') : t('common.inactive')}
                   </span>,
                 ]}
+                actions={
+                  <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => {
+                        setEditingItemId(item.id)
+                        setForm({
+                          name: item.name,
+                          description: item.description || '',
+                          price: item.price ? String(item.price) : '',
+                        })
+                        setShowAdd(true)
+                      }}
+                      className="text-xs text-blue-500 hover:text-blue-700"
+                    >
+                      {t('common.edit', 'Edit')}
+                    </button>
+                    <button
+                      onClick={() => updateItem.mutate({
+                        id: item.id,
+                        data: {
+                          name: item.name,
+                          description: item.description || null,
+                          price: item.price || 0,
+                          is_active: !item.is_active,
+                        },
+                      })}
+                      className={`text-xs ${item.is_active ? 'text-red-400 hover:text-red-600' : 'text-emerald-500 hover:text-emerald-700'}`}
+                    >
+                      {item.is_active ? t('settings.deactivate', 'Deactivate') : t('settings.activate', 'Activate')}
+                    </button>
+                  </div>
+                }
               />
             ))}
-            {catalog?.length === 0 && (
-              <tr><td colSpan={4} className="px-6 py-8 text-sm text-slate-400 text-center">{t('settings.noLabTests')}</td></tr>
-            )}
-          </tbody>
-        </table>
-      )}
-    </SectionCard>
+              {catalog?.length === 0 && (
+                <tr><td colSpan={4} className="px-6 py-8 text-sm text-slate-400 text-center">{t('settings.noLabTests')}</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title={`Combo Lab Tests (${comboCatalog?.length ?? 0})`}
+        action={
+          <button onClick={() => setShowAddCombo((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
+            {Icons.plus} Add Combo Test
+          </button>
+        }
+      >
+        {showAddCombo && (
+          <form onSubmit={handleComboSubmit} className="px-6 py-4 border-b border-slate-100 bg-blue-50/40 grid grid-cols-3 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Combo Name *</label>
+              <input required className={inputCls} value={comboForm.name} onChange={(e) => setComboForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. General Health Panel" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.price')}</label>
+              <input type="number" step="0.01" className={inputCls} value={comboForm.price} onChange={(e) => setComboForm((f) => ({ ...f, price: e.target.value }))} placeholder="0.00" />
+            </div>
+            <div className="col-span-3 flex flex-col gap-1.5 mt-2">
+              <label className="block text-xs font-semibold text-slate-600">Select Individual Tests</label>
+              <div className="flex flex-wrap gap-2">
+                {catalog?.map(test => (
+                  <label key={test.id} className="flex items-center gap-1.5 text-sm text-slate-700 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50 transition-colors">
+                    <input type="checkbox" checked={comboForm.test_ids.includes(test.id)} onChange={(e) => {
+                      setComboForm(f => ({
+                        ...f,
+                        test_ids: e.target.checked ? [...f.test_ids, test.id] : f.test_ids.filter(id => id !== test.id)
+                      }))
+                    }} className="accent-blue-600" />
+                    {test.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-3 flex justify-end gap-2 mt-2">
+              <button type="button" onClick={() => { setShowAddCombo(false); setEditingComboId(null); setComboForm({ name: '', price: '', test_ids: [] }); }} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
+              <button type="submit" disabled={createCombo.isPending || updateCombo.isPending || comboForm.test_ids.length === 0} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
+                {createCombo.isPending || updateCombo.isPending ? t('common.saving', 'Saving...') : (editingComboId ? t('common.save', 'Save Changes') : 'Add Combo Test')}
+              </button>
+            </div>
+          </form>
+        )}
+        {isComboLoading ? <Spinner /> : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-6">Combo Name</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Price</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comboCatalog?.map((item) => (
+                <TableRow
+                  key={item.id}
+                  cells={[
+                    <span className="font-medium text-slate-800">{item.name}</span>,
+                    item.price > 0 ? `₹${item.price.toFixed(2)}` : <span className="text-slate-300">{t('common.free')}</span>,
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${item.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                      {item.is_active ? t('common.active') : t('common.inactive')}
+                    </span>,
+                  ]}
+                  actions={
+                    <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => {
+                          setEditingComboId(item.id)
+                          setComboForm({
+                            name: item.name,
+                            price: item.price ? String(item.price) : '',
+                            test_ids: item.test_ids,
+                          })
+                          setShowAddCombo(true)
+                        }}
+                        className="text-xs text-blue-500 hover:text-blue-700"
+                      >
+                        {t('common.edit', 'Edit')}
+                      </button>
+                      <button
+                        onClick={() => updateCombo.mutate({
+                          id: item.id,
+                          data: {
+                            name: item.name,
+                            price: item.price || 0,
+                            test_ids: item.test_ids,
+                            is_active: !item.is_active,
+                          },
+                        })}
+                        className={`text-xs ${item.is_active ? 'text-red-400 hover:text-red-600' : 'text-emerald-500 hover:text-emerald-700'}`}
+                      >
+                        {item.is_active ? t('settings.deactivate', 'Deactivate') : t('settings.activate', 'Activate')}
+                      </button>
+                    </div>
+                  }
+                />
+              ))}
+              {comboCatalog?.length === 0 && (
+                <tr><td colSpan={3} className="px-6 py-8 text-sm text-slate-400 text-center">No combo tests found</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </SectionCard>
+    </div>
   )
 }
 
@@ -759,11 +1001,55 @@ function ClinicTab() {
     if (form) setForm({ ...form, [field]: e.target.value })
   }
 
+  const compressImage = (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 500;
+          const MAX_HEIGHT = 500;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+            } else {
+              reject(new Error('Compression failed'));
+            }
+          }, 'image/jpeg', 0.8);
+        };
+        img.onerror = (error) => reject(error);
+      };
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
   const handleLogoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     try {
-      await uploadLogo.mutateAsync(file)
+      const compressedFile = await compressImage(file)
+      await uploadLogo.mutateAsync(compressedFile)
       alert(t('common.saved', 'Logo uploaded successfully'))
     } catch (err) {
       alert(t('common.error', 'Failed to upload logo'))
@@ -777,7 +1063,7 @@ function ClinicTab() {
       <div className="p-6 border-b border-slate-100 flex items-center gap-6">
         <div className="w-24 h-24 bg-slate-100 rounded-2xl flex items-center justify-center shrink-0 overflow-hidden border border-slate-200">
           {clinic?.logo_path ? (
-            <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Clinic Logo" className="w-full h-full object-contain" />
+            <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Clinic Logo" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none' }} />
           ) : (
             <div className="text-slate-400 w-10 h-10">{Icons.heartbeat}</div>
           )}

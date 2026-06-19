@@ -14,6 +14,7 @@ import {
   getPermissions,
   createPermission,
   uploadSignature,
+  updateUserTabs,
 } from '../api/users'
 import type { UserInput, RoleInput } from '../types'
 
@@ -46,6 +47,25 @@ export function useDeleteUser() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
       toast.success('User deactivated successfully')
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.detail || 'Failed to deactivate user')
+    },
+  })
+}
+
+export const useUpdateUserTabs = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, tabs }: { id: number; tabs: string[] }) =>
+      updateUserTabs(id, tabs),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      queryClient.invalidateQueries({ queryKey: ['me'] })
+      toast.success('User tabs updated successfully')
+    },
+    onError: (err: any) => {
+      toast.error(err.response?.data?.detail || 'Failed to update user tabs')
     },
   })
 }
