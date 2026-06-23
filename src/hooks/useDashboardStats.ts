@@ -16,6 +16,7 @@ export interface PeriodStats {
   others: {
     revenue: number
   }
+  payment_modes: Record<string, number>
 }
 
 export interface DashboardStats {

@@ -55,7 +55,8 @@ export function InvoiceModal({ patients, invoice, defaultPatientId, defaultAppoi
   const [suggesting, setSuggesting] = useState(false)
   const [suggestError, setSuggestError] = useState('')
 
-  const totalAmount = form.items.reduce((sum, i) => sum + (Number(i.quantity) * Number(i.unit_price) || 0), 0)
+  const validItems = form.items.filter(i => String(i.service_name).trim() !== '')
+  const totalAmount = validItems.reduce((sum, i) => sum + (Number(i.quantity) * Number(i.unit_price) || 0), 0)
 
   const addItem = () => setForm(f => ({ ...f, items: [...f.items, { service_name: '', quantity: 1, unit_price: '' }] }))
   const removeItem = (i: number) => setForm(f => ({ ...f, items: f.items.filter((_, j) => j !== i) }))

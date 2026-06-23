@@ -1,8 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createInvoice, getInvoices, updateInvoiceStatus, updateInvoice, deleteInvoice, searchInvoiceItems } from '../api/billing'
 
-export const useInvoices = (patientId?: number, startDate?: string, endDate?: string) =>
-  useQuery({ queryKey: ['invoices', patientId, startDate, endDate], queryFn: () => getInvoices(patientId, startDate, endDate) })
+export const useInvoices = (patientId?: number, startDate?: string, endDate?: string, options?: any) =>
+  useQuery({ 
+    queryKey: ['invoices', patientId, startDate, endDate], 
+    queryFn: () => getInvoices(patientId, startDate, endDate),
+    ...options,
+  })
 
 export const useSearchInvoiceItems = (query: string) =>
   useQuery({
@@ -22,7 +26,7 @@ export const useCreateInvoice = () => {
 export const useUpdateInvoiceStatus = () => {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) => updateInvoiceStatus(id, status),
+    mutationFn: ({ id, data }: { id: number; data: { status: string; payment_mode?: string; transaction_id?: string } }) => updateInvoiceStatus(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
   })
 }

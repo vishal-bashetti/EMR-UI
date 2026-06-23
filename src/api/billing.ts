@@ -18,8 +18,8 @@ export const getInvoice = (id: number): Promise<Invoice> =>
 export const updateInvoice = (id: number, data: InvoiceInput): Promise<Invoice> =>
   api.put<Invoice>(`/billing/${id}`, data).then((r) => r.data)
 
-export const updateInvoiceStatus = (id: number, status: string): Promise<Invoice> =>
-  api.put<Invoice>(`/billing/${id}/status`, null, { params: { status } }).then((r) => r.data)
+export const updateInvoiceStatus = (id: number, data: { status: string; payment_mode?: string; transaction_id?: string }): Promise<Invoice> =>
+  api.put<Invoice>(`/billing/${id}/status`, data).then((r) => r.data)
 
 export const deleteInvoice = (id: number): Promise<{ detail: string }> =>
   api.delete<{ detail: string }>(`/billing/${id}`).then((r) => r.data)

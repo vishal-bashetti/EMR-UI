@@ -15,6 +15,7 @@ import { usePatients, useCreatePatient } from '../hooks/usePatients'
 import { useDoctors } from '../hooks/useUsers'
 import { useSettings } from '../hooks/useSettings'
 import { useCreateInvoice, useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
+import { PaymentModal } from '../components/PaymentModal'
 import { InvoiceModal } from '../components/InvoiceModal'
 import type { Appointment, AppointmentInput, Patient } from '../types'
 
@@ -259,6 +260,8 @@ interface NewPatientForm {
   emergency_contact: string
   emergency_phone: string
   address: string
+  opd_number: string
+  language: string
   is_active: number
 }
 
@@ -266,7 +269,8 @@ type NewPatientTextField = 'first_name' | 'last_name' | 'contact_number' | 'dob'
 
 const EMPTY_PATIENT_FORM: NewPatientForm = {
   first_name: '', last_name: '', dob: '', gender: 'Male', contact_number: '',
-  email: '', blood_group: 'A+', emergency_contact: '', emergency_phone: '', address: '', is_active: 1,
+  email: '', blood_group: 'A+', emergency_contact: '', emergency_phone: '', address: '',
+  opd_number: '', language: '', is_active: 1,
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -281,6 +285,7 @@ export default function AppointmentsPage() {
   })
   const [showForm, setShowForm] = useState(false)
   const [billApptId, setBillApptId] = useState<number | null>(null)
+  const [payingInvoice, setPayingInvoice] = useState<number | null>(null)
   const [form, setForm] = useState<ScheduleForm>({ patient_id: '', doctor_id: '', appointment_type_id: '', appointment_time: '', status: 'Scheduled' })
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -556,7 +561,7 @@ export default function AppointmentsPage() {
                                       </span>
                                       {!isPaid && (
                                         <button
-                                          onClick={(e) => { e.stopPropagation(); updateInvoiceStatus.mutate({ id: apptInvoice.id, status: 'Paid' }) }}
+                                          onClick={(e) => { e.stopPropagation(); setPayingInvoice(apptInvoice.id) }}
                                           style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 12, backgroundColor: '#4361ee', color: 'white', border: 'none', cursor: 'pointer' }}
                                         >Pay</button>
                                       )}
@@ -751,6 +756,12 @@ export default function AppointmentsPage() {
                 <button type="button" onClick={() => setShowCreatePatient(false)} style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>{t('appointments.backShort')}</button>
               </div>
               <form onSubmit={handleCreatePatient}>
+                <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1.5px solid #e2e8f0' }}>
+                  <div style={{ width: '50%', paddingRight: 6 }}>
+                    <FieldLabel>OPD Number <span style={{ color: '#ef4444' }}>*</span></FieldLabel>
+                    <input value={patientForm.opd_number} onChange={(e) => setPatientForm({ ...patientForm, opd_number: e.target.value })} required placeholder="OPD-12345" className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
+                  </div>
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {([
                     { label: t('appointments.firstNameReq'), key: 'first_name', required: true },
@@ -787,6 +798,10 @@ export default function AppointmentsPage() {
                   <div>
                     <FieldLabel>{t('appointments.emergencyPhone')}</FieldLabel>
                     <input value={patientForm.emergency_phone} onChange={(e) => setPatientForm({ ...patientForm, emergency_phone: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
+                  </div>
+                  <div>
+                    <FieldLabel>Language</FieldLabel>
+                    <input value={patientForm.language} onChange={(e) => setPatientForm({ ...patientForm, language: e.target.value })} placeholder="e.g. English, Spanish" className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
                   </div>
                   <div style={{ gridColumn: 'span 2' }}>
                     <FieldLabel>{t('appointments.address')}</FieldLabel>
@@ -875,6 +890,18 @@ export default function AppointmentsPage() {
           onSave={async (data) => {
             await createInvoice.mutateAsync(data)
             setBillApptId(null)
+          }}
+        />
+      )}
+
+      {/* Payment Details Modal */}
+      {payingInvoice && (
+        <PaymentModal
+          invoiceId={payingInvoice}
+          onClose={() => setPayingInvoice(null)}
+          onSave={(data) => {
+            updateInvoiceStatus.mutate({ id: payingInvoice, data })
+            setPayingInvoice(null)
           }}
         />
       )}

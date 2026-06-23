@@ -2,8 +2,8 @@ import React, { useState } from 'react'
 import { useLabResultsHistory } from '../hooks/useLabResults'
 
 export function LabTestGraph({ patientId, testName, referenceRange, unit }: { patientId: number; testName: string; referenceRange?: string | null; unit?: string | null }) {
-  const { data: history } = useLabResultsHistory(patientId, testName, 10)
   const [isOpen, setIsOpen] = useState(false)
+  const { data: history } = useLabResultsHistory(patientId, testName, 10, { enabled: isOpen })
 
   // Parse numeric values, filter out non-numerics or nulls
   const dataPoints = (history || [])

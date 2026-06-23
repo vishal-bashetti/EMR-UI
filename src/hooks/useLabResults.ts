@@ -20,10 +20,11 @@ import {
 } from '../api/labResults'
 import type { LabResultInput, OrderComboPayload, LabCatalogInput, LabComboCatalogInput } from '../types'
 
-export const useLabCatalog = (query?: string) => useQuery({ 
+export const useLabCatalog = (query?: string, options?: any) => useQuery({ 
   queryKey: ['labCatalog', query], 
   queryFn: () => getLabCatalog(query),
-  enabled: query === undefined || query.length > 1,
+  ...options,
+  enabled: (query === undefined || query.length > 1) && (options?.enabled ?? true),
 })
 
 export const useCreateLabCatalogItem = () => {
@@ -50,9 +51,10 @@ export const useDeleteLabCatalogItem = () => {
   })
 }
 
-export const useComboCatalog = (query?: string) => useQuery({
+export const useComboCatalog = (query?: string, options?: any) => useQuery({
   queryKey: ['comboCatalog', query],
   queryFn: () => getComboCatalog(query),
+  ...options,
 })
 
 export const useCreateComboCatalogItem = () => {
@@ -95,38 +97,50 @@ export const useCreateLabResult = () => {
   })
 }
 
-export const useLabQueue = (status?: string) => useQuery({
+export const useLabQueue = (status?: string, options?: any) => useQuery({
   queryKey: ['labQueue', status],
   queryFn: () => getLabQueue(status),
+  refetchInterval: 30_000,
+  staleTime: 15_000,
+  ...options,
 })
 
-export const useLabResultsHistory = (patientId?: number, testName?: string, limit = 10) =>
+export const useLabResultsHistory = (patientId?: number, testName?: string, limit = 10, options?: any) =>
   useQuery({
     queryKey: ['labResultsHistory', patientId, testName, limit],
     queryFn: () => getLabResultsHistory(patientId as number, testName, limit),
-    enabled: !!patientId,
+    ...options,
+    enabled: !!patientId && (options?.enabled ?? true),
   })
 
-export const useLatestLabResults = (patientId?: number) =>
+export const useLatestLabResults = (patientId?: number, options?: any) =>
   useQuery({
     queryKey: ['latestLabResults', patientId],
     queryFn: () => getLatestLabResults(patientId as number),
-    enabled: !!patientId,
+    ...options,
+    enabled: !!patientId && (options?.enabled ?? true),
   })
 
-export const useLabResults = (patientId?: number) =>
+export const useLabResults = (patientId?: number, options?: any) =>
   useQuery({
     queryKey: ['labResults', patientId],
     queryFn: () => getLabResults(patientId as number),
-    enabled: !!patientId,
+    ...options,
+    enabled: !!patientId && (options?.enabled ?? true),
   })
 
 export const useUpdateLabResult = () => {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: LabResultInput }) => updateLabResult(id, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['labResults'] })
+    onSuccess: (_, variables) => {
+      if (variables.data.patient_id) {
+        qc.invalidateQueries({ queryKey: ['labResults', variables.data.patient_id] })
+        qc.invalidateQueries({ queryKey: ['latestLabResults', variables.data.patient_id] })
+        qc.invalidateQueries({ queryKey: ['labResultsHistory', variables.data.patient_id] })
+      } else {
+        qc.invalidateQueries({ queryKey: ['labResults'] })
+      }
       qc.invalidateQueries({ queryKey: ['labQueue'] })
       qc.invalidateQueries({ queryKey: ['invoices'] })
     },
@@ -144,9 +158,10 @@ export const useDeleteLabResult = () => {
   })
 }
 
-export const useLabResultsByDate = (date?: string) =>
+export const useLabResultsByDate = (date?: string, options?: any) =>
   useQuery({
     queryKey: ['labResultsByDate', date],
     queryFn: () => getLabResultsByDate(date as string),
-    enabled: !!date,
+    ...options,
+    enabled: !!date && (options?.enabled ?? true),
   })

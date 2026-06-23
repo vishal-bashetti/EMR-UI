@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
+import { useQueryClient } from '@tanstack/react-query'
 import { usePatient } from '../hooks/usePatients'
 import { useMe } from '../hooks/useUsers'
 import { useVitalConfigs, useCreateVisit, useUpdateVisit } from '../hooks/useVisits'
@@ -761,6 +762,7 @@ export default function NewVisitPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const patientId = Number(searchParams.get('patient_id'))
   const appointmentId = searchParams.get('appointment_id') ? Number(searchParams.get('appointment_id')) : null
@@ -836,7 +838,9 @@ export default function NewVisitPage() {
     const encId = typeof specificEncounterId === 'number' ? specificEncounterId : undefined;
     setCarryStatus('loading')
     try {
-      const data = encId ? await getVisitById(encId) : await getLastVisit(patientId)
+      const data = encId 
+        ? await queryClient.fetchQuery({ queryKey: ['visit', encId], queryFn: () => getVisitById(encId) }) 
+        : await queryClient.fetchQuery({ queryKey: ['lastVisit', patientId], queryFn: () => getLastVisit(patientId) })
       const enc = data.encounter
       if (encId) setStatus(enc.status || 'Open')
       setReason(enc.reason || '')

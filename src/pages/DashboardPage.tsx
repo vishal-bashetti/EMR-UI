@@ -2,13 +2,13 @@ import type { ReactNode } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useMe } from '../hooks/useUsers'
-import { usePatients } from '../hooks/usePatients'
+import { useDashboardStats } from '../hooks/useDashboardStats'
 import { useAppointments } from '../hooks/useAppointments'
 import { useInvoices, useCreateInvoice } from '../hooks/useBilling'
 import { Avatar } from '../components/Layout'
 import { InvoiceModal } from '../components/InvoiceModal'
 import { Icons } from '../components/Icons'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 
 type Accent = 'blue' | 'green' | 'violet' | 'amber'
 
@@ -76,7 +76,7 @@ export default function DashboardPage() {
   const { data: me } = useMe()
   const role = me?.role?.name?.toLowerCase() || ''
   
-  const { data: patients } = usePatients()
+  const { data: stats } = useDashboardStats()
   const { data: appointments } = useAppointments({ 
     appointment_date: selectedDate,
     ...(role === 'doctor' && me?.id ? { doctor_id: me.id } : {}),
@@ -86,6 +86,26 @@ export default function DashboardPage() {
     limit: 100
   })
   const { data: invoices } = useInvoices(undefined, selectedDate, selectedDate)
+  const invoiceLookup = useMemo(() => {
+    if (!invoices) return () => []
+    const byAppt = new Map()
+    const byPatientNoAppt = new Map()
+    for (const inv of invoices) {
+      if (inv.appointment_id) {
+        if (!byAppt.has(inv.appointment_id)) byAppt.set(inv.appointment_id, [])
+        byAppt.get(inv.appointment_id).push(inv)
+      } else if (inv.patient_id) {
+        if (!byPatientNoAppt.has(inv.patient_id)) byPatientNoAppt.set(inv.patient_id, [])
+        byPatientNoAppt.get(inv.patient_id).push(inv)
+      }
+    }
+    return (apptId: number, patientId?: number) => {
+      const apptInvs = byAppt.get(apptId) || []
+      const patientInvs = patientId ? (byPatientNoAppt.get(patientId) || []) : []
+      return [...apptInvs, ...patientInvs]
+    }
+  }, [invoices])
+
   const [visibleCount, setVisibleCount] = useState(20)
   const observerTarget = useRef<HTMLDivElement>(null)
 
@@ -150,9 +170,9 @@ export default function DashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard
-          label={t('dashboard.totalPatients')}
-          value={patients?.length}
-          sub={t('dashboard.activeRecords')}
+          label={t('dashboard.patientsSeenToday', 'Patients Seen Today')}
+          value={stats?.today?.total_patients || 0}
+          sub={t('dashboard.handledToday', 'Handled today')}
           accent="blue"
           icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-5 h-5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}
         />
@@ -305,7 +325,7 @@ export default function DashboardPage() {
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-1.5 items-start">
                           <StatusBadge status={appt.status || 'Scheduled'} />
-                          {invoices?.filter(inv => (inv.appointment_id === appt.id || (inv.patient_id === appt.patient_id && !inv.appointment_id))).map((inv) => (
+                          {invoiceLookup(appt.id, appt.patient_id).map((inv: any) => (
                             <span key={inv.id} className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wide border ${inv.status.toLowerCase() === 'paid' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
                               ₹{inv.amount} {inv.status}
                             </span>

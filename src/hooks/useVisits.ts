@@ -11,11 +11,12 @@ export const useLastVisit = (patientId?: number) =>
     enabled: !!patientId,
   })
 
-export const useVisitHistory = (patientId?: number, limit = 6) =>
+export const useVisitHistory = (patientId?: number, limit = 6, options?: any) =>
   useQuery({
     queryKey: ['visitHistory', patientId, limit],
     queryFn: () => getVisitHistory(patientId as number, limit),
-    enabled: !!patientId,
+    ...options,
+    enabled: !!patientId && (options?.enabled ?? true),
   })
 
 export const useCreateVisit = () => {

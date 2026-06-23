@@ -17,3 +17,9 @@ export const uploadClinicLogo = (file: File): Promise<{ logo_path: string }> => 
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then((r) => r.data)
 }
+
+export const loginMessagingProvider = (data: {email: string; password: string; expires_in?: string}): Promise<Clinic> =>
+  api.post<Clinic>('/clinic/messaging-auth', data).then((r) => r.data)
+
+export const logoutMessagingProvider = (): Promise<Clinic> =>
+  api.delete<Clinic>('/clinic/messaging-auth').then((r) => r.data)

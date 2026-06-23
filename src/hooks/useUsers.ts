@@ -18,9 +18,9 @@ import {
 } from '../api/users'
 import type { UserInput, RoleInput } from '../types'
 
-export const useMe = () => useQuery({ queryKey: ['me'], queryFn: getMe })
+export const useMe = () => useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 5 * 60_000 })
 
-export const useUsers = () => useQuery({ queryKey: ['users'], queryFn: getUsers })
+export const useUsers = (options?: any) => useQuery({ queryKey: ['users'], queryFn: getUsers, ...options })
 
 export const useDoctors = () => useQuery({ queryKey: ['doctors'], queryFn: getDoctors })
 

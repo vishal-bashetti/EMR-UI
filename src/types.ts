@@ -165,18 +165,23 @@ export interface InvoiceItemInput {
 export interface Invoice {
   id: number
   patient_id: number
-  appointment_id: number | null
+  appointment_id?: number
   amount: number
-  status: string
-  items: InvoiceItem[]
+  status: string // Pending, Paid, Cancelled
+  payment_mode: string
+  transaction_id?: string
+  created_at: string
+  items?: InvoiceItem[]
 }
 
 export interface InvoiceInput {
   patient_id: number
   appointment_id?: number
   amount: number
-  status: string
-  items: InvoiceItemInput[]
+  status?: string
+  payment_mode?: string
+  transaction_id?: string
+  items?: InvoiceItemInput[]
 }
 
 export interface BillSuggestionItem {
@@ -616,16 +621,58 @@ export interface LiveQueue {
   waiting: QueueEntry[]
 }
 
+export interface SendPrescriptionSettings {
+  whatsapp: boolean;
+}
+
+export interface FollowupReminderSettings {
+  sms: boolean;
+  whatsapp: boolean;
+  days_early: number;
+}
+
+export interface LabReportSettings {
+  whatsapp: boolean;
+}
+
+export interface AppointmentScheduleSettings {
+  sms: boolean;
+  whatsapp: boolean;
+}
+
+export interface NextAppointmentScheduleSettings {
+  sms: boolean;
+  whatsapp: boolean;
+}
+
+export interface TreatmentReminderSettings {
+  sms: boolean;
+  whatsapp: boolean;
+}
+
+export interface NotificationSettings {
+  send_prescription?: { whatsapp: boolean };
+  send_followup_reminder?: { sms: boolean; whatsapp: boolean; days_early: number };
+  send_lab_report?: { whatsapp: boolean };
+  appointment_schedule?: { sms: boolean; whatsapp: boolean };
+  next_appointment_schedule?: { sms: boolean; whatsapp: boolean };
+  treatment_reminder?: { sms: boolean; whatsapp: boolean };
+  messaging_api_key?: string;
+  is_messaging_authenticated?: boolean;
+}
+
 export interface Clinic {
   id: number;
-  name: string;
-  address: string;
-  support_email: string;
-  phone: string;
-  whatsapp: string;
-  website: string;
-  app_link: string;
-  logo_path: string;
+  name?: string;
+  address?: string;
+  support_email?: string;
+  phone?: string;
+  whatsapp?: string;
+  website?: string;
+  app_link?: string;
+  logo_path?: string;
+  notification_settings?: NotificationSettings;
+  is_messaging_authenticated?: boolean;
 }
 
 // ─── Messaging ─────────────────────────────────────────────────────────────
@@ -656,6 +703,7 @@ export interface ClinicInput {
   whatsapp: string;
   website: string;
   app_link: string;
+  notification_settings?: NotificationSettings;
 }
 export interface LabComboCatalogInput {
   name: string

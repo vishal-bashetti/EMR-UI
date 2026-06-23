@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { usePatient } from '../hooks/usePatients'
+import { usePatient, useUpdatePatient } from '../hooks/usePatients'
 import { useVisitHistory } from '../hooks/useVisits'
 import { useLatestLabResults, useUpdateLabResult } from '../hooks/useLabResults'
 import { useClinic } from '../hooks/useSettings'
@@ -11,6 +11,9 @@ import { LabTestGraph } from '../components/LabTestGraph'
 import { useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
 import { useMe } from '../hooks/useUsers'
 import { Icons } from '../components/Icons'
+import { EmptyState } from '../components/EmptyState'
+import { Spinner } from '../components/Spinner'
+import { PaymentModal } from '../components/PaymentModal'
 import type { LabResult, LabResultInput, VisitResponse, Invoice } from '../types'
 
 // ─── Shared style maps ────────────────────────────────────────────────────────
@@ -28,30 +31,9 @@ const STATUS_INV: Record<string, string> = {
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
-function Spinner() {
-  return (
-    <div className="flex items-center justify-center py-16">
-      <svg className="animate-spin w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="none">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-      </svg>
-    </div>
-  )
-}
-
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">{children}</p>
-  )
-}
-
-function EmptyState({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-10 text-slate-400">
-      <div className="text-slate-300 mb-2">{icon}</div>
-      <p className="text-sm font-medium text-slate-500">{title}</p>
-      {sub && <p className="text-xs mt-1">{sub}</p>}
-    </div>
   )
 }
 
@@ -76,11 +58,13 @@ function PatientHero({
   age,
   patientId,
   doctorId,
+  onEdit,
 }: {
   patient: ReturnType<typeof usePatient>['data'] & object
   age: number | null
   patientId: number
   doctorId?: number
+  onEdit?: () => void
 }) {
   const { t } = useTranslation()
   const name = `${patient.first_name} ${patient.last_name}`
@@ -135,13 +119,24 @@ function PatientHero({
           </div>
         </div>
 
-        <Link
-          to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}`}
-          className="shrink-0 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm shadow-blue-200"
-        >
-          {Icons.plus}
-          {t('patientDetail.newVisit')}
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm"
+            >
+              {Icons.edit}
+              {t('common.edit')}
+            </button>
+          )}
+          <Link
+            to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}`}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm shadow-blue-200"
+          >
+            {Icons.plus}
+            {t('patientDetail.newVisit')}
+          </Link>
+        </div>
       </div>
     </div>
   )
@@ -743,12 +738,14 @@ function LabResultsTab({ results, loading, onEdit }: {
   )
 }
 
+
 function BillingTab({ invoices, loading, onStatusChange }: {
   invoices?: Invoice[]
   loading: boolean
-  onStatusChange: (id: number, status: string) => void
+  onStatusChange: (id: number, data: { status: string; payment_mode?: string; transaction_id?: string }) => void
 }) {
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [payingInvoice, setPayingInvoice] = useState<number | null>(null)
 
   if (loading) return <Spinner />
   if (!invoices?.length) return <EmptyState icon={Icons.billing} title="No invoices" sub="Invoices are created when lab tests are completed." />
@@ -798,7 +795,11 @@ function BillingTab({ invoices, loading, onStatusChange }: {
                       </span>
                       <select
                         value={inv.status}
-                        onChange={e => onStatusChange(inv.id, e.target.value)}
+                        onChange={e => {
+                          const val = e.target.value
+                          if (val === 'Paid') setPayingInvoice(inv.id)
+                          else onStatusChange(inv.id, { status: val })
+                        }}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full"
                       >
                         <option value="Pending">Pending</option>
@@ -818,7 +819,7 @@ function BillingTab({ invoices, loading, onStatusChange }: {
                   <tr key={`${inv.id}-expand`}>
                     <td colSpan={5} className="px-6 py-3 bg-slate-50/50 border-t border-slate-50">
                       {inv.items?.length > 0 ? (
-                        <div className="border-l-2 border-blue-200 pl-3 space-y-1">
+                        <div className="border-l-2 border-blue-200 pl-3 space-y-1 mb-2">
                           {inv.items.map(item => (
                             <div key={item.id} className="flex items-center justify-between text-xs text-slate-600">
                               <span className="font-medium">{item.service_name}</span>
@@ -827,7 +828,13 @@ function BillingTab({ invoices, loading, onStatusChange }: {
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-400 italic">No line items.</p>
+                        <p className="text-xs text-slate-400 italic mb-2">No line items.</p>
+                      )}
+                      {inv.status === 'Paid' && (
+                        <div className="mt-2 p-2.5 bg-emerald-50/50 border border-emerald-100 rounded-lg flex items-center gap-4 text-xs">
+                          <div><span className="font-semibold text-emerald-800">Mode:</span> <span className="text-emerald-700">{inv.payment_mode || 'Cash'}</span></div>
+                          {inv.transaction_id && <div><span className="font-semibold text-emerald-800">Txn ID:</span> <span className="text-emerald-700 font-mono">{inv.transaction_id}</span></div>}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -857,6 +864,7 @@ export default function PatientDetailPage() {
   const patientId = Number(id)
   const [activeTab, setActiveTab] = useState<Tab>('visits')
   const [editingLab, setEditingLab] = useState<LabResult | null>(null)
+  const [editingPatient, setEditingPatient] = useState(false)
   const [printVisit, setPrintVisit] = useState<{ visit: VisitResponse; type: 'report' | 'prescription' } | null>(null)
 
   const { data: patient, isLoading: loadingPatient } = usePatient(patientId)
@@ -866,6 +874,7 @@ export default function PatientDetailPage() {
   const { data: me } = useMe()
   const { data: clinic } = useClinic()
   const updateLab = useUpdateLabResult()
+  const updatePatientMutation = useUpdatePatient()
   const updateInvoiceStatus = useUpdateInvoiceStatus()
 
   const handlePrint = (visit: VisitResponse, type: 'report' | 'prescription') => {
@@ -934,7 +943,7 @@ export default function PatientDetailPage() {
           <span className="text-sm font-semibold text-slate-800 truncate max-w-xs">{patientName}</span>
         </div>
         {/* Compact patient banner */}
-        <PatientHero patient={patient} age={age} patientId={patientId} doctorId={me?.id} />
+        <PatientHero patient={patient} age={age} patientId={patientId} doctorId={me?.id} onEdit={() => setEditingPatient(true)} />
       </div>
 
       <div className="max-w-5xl mx-auto px-6 py-4">
@@ -994,12 +1003,21 @@ export default function PatientDetailPage() {
         )}
       </div>
 
-      {/* Lab Result Update Modal */}
       {editingLab && (
         <LabResultUpdateModal
           lab={editingLab}
           onClose={() => setEditingLab(null)}
           onSave={handleLabSave}
+        />
+      )}
+
+      {editingPatient && patient && (
+        <PatientEditModal
+          patient={patient}
+          onClose={() => setEditingPatient(false)}
+          onSave={async (form) => {
+            await updatePatientMutation.mutateAsync({ id: patient.id, data: form })
+          }}
         />
       )}
 
@@ -1013,6 +1031,115 @@ export default function PatientDetailPage() {
           onReady={() => window.print()}
         />
       )}
+    </div>
+  )
+}
+
+function PatientEditModal({
+  patient, onClose, onSave,
+}: {
+  patient: ReturnType<typeof usePatient>['data'] & object
+  onClose: () => void
+  onSave: (form: any) => Promise<void>
+}) {
+  const [form, setForm] = useState({
+    first_name: patient.first_name || '',
+    last_name: patient.last_name || '',
+    dob: patient.dob || '',
+    gender: patient.gender || '',
+    contact_number: patient.contact_number || '',
+    email: patient.email || '',
+    blood_group: patient.blood_group || '',
+    address: patient.address || '',
+    language: patient.language || '',
+    opd_number: patient.opd_number || '',
+    emergency_contact: patient.emergency_contact || '',
+    emergency_phone: patient.emergency_phone || '',
+  })
+  const [loading, setLoading] = useState(false)
+  const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white'
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      await onSave(form)
+      onClose()
+    } finally {
+      setLoading(false)
+    }
+  }
+  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+          <h2 className="text-base font-bold text-slate-900">Edit Patient</h2>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">{Icons.x}</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">First Name *</label>
+            <input className={inputCls} value={form.first_name} onChange={set('first_name')} required />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Last Name *</label>
+            <input className={inputCls} value={form.last_name} onChange={set('last_name')} required />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">DOB *</label>
+            <input type="date" className={inputCls} value={form.dob} max={new Date().toISOString().split('T')[0]} onChange={set('dob')} required />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Gender *</label>
+            <select className={inputCls} value={form.gender} onChange={set('gender')} required>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Contact Number *</label>
+            <input className={inputCls} value={form.contact_number} onChange={set('contact_number')} required />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Email</label>
+            <input type="email" className={inputCls} value={form.email} onChange={set('email')} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Blood Group *</label>
+            <select className={inputCls} value={form.blood_group} onChange={set('blood_group')} required>
+              <option value="" disabled>Select</option>
+              {['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−'].map((g) => <option key={g}>{g}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">OPD Number</label>
+            <input className={inputCls} value={form.opd_number} onChange={set('opd_number')} />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Address</label>
+            <input className={inputCls} value={form.address} onChange={set('address')} />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Language</label>
+            <input className={inputCls} value={form.language} onChange={set('language')} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Emergency Contact</label>
+            <input className={inputCls} value={form.emergency_contact} onChange={set('emergency_contact')} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Emergency Phone</label>
+            <input className={inputCls} value={form.emergency_phone} onChange={set('emergency_phone')} />
+          </div>
+          <div className="col-span-2 flex justify-end gap-3 pt-4 border-t border-slate-100 mt-2">
+            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
+            <button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">{loading ? 'Saving...' : 'Save Changes'}</button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

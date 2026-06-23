@@ -53,7 +53,14 @@ export default function LabDashboardPage() {
   const [activeTab, setActiveTab] = useState<'create' | 'queue' | 'reports'>('create')
 
   const [searchQuery, setSearchQuery] = useState('')
-  const { data: patients } = usePatients(searchQuery)
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  const { data: patients } = usePatients(debouncedSearchQuery || undefined, { enabled: activeTab === 'create' })
   const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null)
   
   const [page, setPage] = useState(1)
@@ -66,14 +73,14 @@ export default function LabDashboardPage() {
   const paginatedPatients = patients?.slice((page - 1) * itemsPerPage, page * itemsPerPage)
   const totalPages = patients ? Math.ceil(patients.length / itemsPerPage) : 0
 
-  const { data: labCatalog } = useLabCatalog()
-  const { data: comboCatalog } = useComboCatalog()
+  const { data: labCatalog } = useLabCatalog(undefined, { enabled: activeTab === 'create' })
+  const { data: comboCatalog } = useComboCatalog(undefined, { enabled: activeTab === 'create' })
   
   const createLab = useCreateLabResult()
   const orderCombo = useOrderCombo()
 
   // Fulfillment State
-  const { data: queue } = useLabQueue()
+  const { data: queue } = useLabQueue(undefined, { enabled: activeTab === 'queue' })
   const updateLab = useUpdateLabResult()
   const deleteLab = useDeleteLabResult()
   const { data: me } = useMe()
@@ -84,11 +91,18 @@ export default function LabDashboardPage() {
 
   // Reports State
   const [reportSearchQuery, setReportSearchQuery] = useState('')
-  const { data: reportPatients } = usePatients(reportSearchQuery)
+  const [debouncedReportSearchQuery, setDebouncedReportSearchQuery] = useState('')
+  
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedReportSearchQuery(reportSearchQuery), 300)
+    return () => clearTimeout(t)
+  }, [reportSearchQuery])
+
+  const { data: reportPatients } = usePatients(debouncedReportSearchQuery || undefined, { enabled: activeTab === 'reports' })
   const [selectedReportPatientId, setSelectedReportPatientId] = useState<number | null>(null)
-  const { data: patientLabResults } = useLabResults(selectedReportPatientId || undefined)
+  const { data: patientLabResults } = useLabResults(selectedReportPatientId || undefined, { enabled: activeTab === 'reports' })
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
-  const { data: dateLabResults } = useLabResultsByDate(!selectedReportPatientId && reportDate ? reportDate : undefined)
+  const { data: dateLabResults } = useLabResultsByDate(!selectedReportPatientId && reportDate ? reportDate : undefined, { enabled: activeTab === 'reports' })
   const [printingPatientId, setPrintingPatientId] = useState<number | null>(null)
 
   const pendingQueue = queue?.filter(q => q.lab_result.status === 'Pending') || []

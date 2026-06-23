@@ -96,7 +96,7 @@ export default function ReportsPage() {
         </div>
 
         {/* Revenue Breakdown */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
             <div className="p-5 md:p-6 border-b border-slate-100">
               <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
@@ -125,7 +125,7 @@ export default function ReportsPage() {
                 </div>
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-semibold text-slate-600">Other (Medications, etc.)</span>
+                    <span className="text-sm font-semibold text-slate-600">Other</span>
                     <span className="text-lg font-bold text-slate-900">₹{(currentStats.others?.revenue || 0).toFixed(2)}</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2.5">
@@ -136,6 +136,44 @@ export default function ReportsPage() {
                   <span className="text-base font-bold text-slate-800">Total Revenue</span>
                   <span className="text-2xl font-bold text-blue-600">₹{totalRevenue.toFixed(2)}</span>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+            <div className="p-5 md:p-6 border-b border-slate-100">
+              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <span className="text-slate-400">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><rect x="2" y="5" width="20" height="14" rx="2" /><line x1="2" y1="10" x2="22" y2="10" /></svg>
+                </span>
+                Payment Methods
+              </h2>
+            </div>
+            <div className="p-5 md:p-6 flex-1 flex flex-col justify-center">
+              <div className="space-y-6">
+                {Object.entries(currentStats.payment_modes || {}).map(([mode, amount], idx) => {
+                  const modeTotal = currentStats.payment_modes ? Object.values(currentStats.payment_modes).reduce((a, b) => a + b, 0) : 1
+                  const pct = Math.max(2, (amount / Math.max(1, modeTotal)) * 100 || 0)
+                  const colors = ['bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-cyan-500', 'bg-orange-500']
+                  const color = colors[idx % colors.length]
+                  
+                  if (amount === 0) return null
+                  
+                  return (
+                    <div key={mode}>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-semibold text-slate-600">{mode}</span>
+                        <span className="text-lg font-bold text-slate-900">₹{amount.toFixed(2)}</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-2.5">
+                        <div className={`${color} h-2.5 rounded-full transition-all`} style={{ width: `${pct}%` }}></div>
+                      </div>
+                    </div>
+                  )
+                })}
+                {(!currentStats.payment_modes || Object.values(currentStats.payment_modes).reduce((a, b) => a + b, 0) === 0) && (
+                  <div className="text-center text-slate-400 text-sm italic py-8">No payments recorded</div>
+                )}
               </div>
             </div>
           </div>

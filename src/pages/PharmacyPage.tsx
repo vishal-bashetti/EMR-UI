@@ -45,6 +45,8 @@ export default function PharmacyPage() {
       const res = await api.get('/pharmacy/orders')
       return res.data
     },
+    refetchInterval: 30_000,
+    staleTime: 15_000,
   })
 
   const updateStatus = useMutation({

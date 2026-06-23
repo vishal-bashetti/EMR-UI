@@ -2,14 +2,14 @@ import { useState, useRef } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  useUsers, useCreateUser, useDeleteUser, useUploadSignature,
+  useUsers, useCreateUser, useUpdateUser, useDeleteUser, useUploadSignature,
   useRoles, useCreateRole, useUpdateRole, useDeleteRole,
   usePermissions, useCreatePermission, useUpdateUserTabs
 } from '../hooks/useUsers'
 import { useAllDrugs, useCreateDrug, useUpdateDrug } from '../hooks/useDrugs'
 import { useLabCatalog, useCreateLabCatalogItem, useUpdateLabCatalogItem, useDeleteLabCatalogItem, useComboCatalog, useCreateComboCatalogItem, useUpdateComboCatalogItem, useDeleteComboCatalogItem } from '../hooks/useLabResults'
 import { useAppointmentStatuses, useCreateAppointmentStatus } from '../hooks/useAppointments'
-import { useClinic, useUpdateClinic, useUploadClinicLogo } from '../hooks/useSettings'
+import { useClinic, useUpdateClinic, useUploadClinicLogo, useLoginMessagingProvider, useLogoutMessagingProvider } from '../hooks/useSettings'
 import { Icons } from '../components/Icons'
 import SignatureCanvas from 'react-signature-canvas'
 import type { DrugInput, Role, ClinicInput, User } from '../types'
@@ -54,17 +54,24 @@ function TableRow({ cells, actions }: { cells: ReactNode[]; actions?: ReactNode 
 function UsersTab() {
   const { t } = useTranslation()
   const [showAdd, setShowAdd] = useState(false)
+  const [editingUserId, setEditingUserId] = useState<number | null>(null)
   const [form, setForm] = useState({ username: '', email: '', password: '', role_id: '' })
   const { data: users, isLoading } = useUsers()
   const { data: roles } = useRoles()
   const createUser = useCreateUser()
+  const updateUser = useUpdateUser()
   const deleteUser = useDeleteUser()
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    await createUser.mutateAsync({ ...form, role_id: form.role_id ? Number(form.role_id) : null, is_active: true })
+    if (editingUserId) {
+      await updateUser.mutateAsync({ id: editingUserId, data: { ...form, role_id: form.role_id ? Number(form.role_id) : null, is_active: true } })
+    } else {
+      await createUser.mutateAsync({ ...form, role_id: form.role_id ? Number(form.role_id) : null, is_active: true })
+    }
     setForm({ username: '', email: '', password: '', role_id: '' })
     setShowAdd(false)
+    setEditingUserId(null)
   }
 
   const [signatureUser, setSignatureUser] = useState<User | null>(null)
@@ -119,7 +126,7 @@ function UsersTab() {
       <SectionCard
         title={t('settings.usersCount', { count: users?.length ?? 0 })}
         action={
-          <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
+          <button onClick={() => { setShowAdd((v) => !v); setEditingUserId(null); setForm({ username: '', email: '', password: '', role_id: '' }) }} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
             {Icons.plus} {t('settings.addUser')}
           </button>
         }
@@ -135,8 +142,8 @@ function UsersTab() {
               <input required type="email" className={inputCls} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="john@clinic.com" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.password')} *</label>
-              <input required type="password" className={inputCls} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} placeholder="••••••••" />
+              <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.password')} {!editingUserId && '*'}</label>
+              <input required={!editingUserId} type="password" className={inputCls} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} placeholder={editingUserId ? "(Leave blank to keep current)" : "••••••••"} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.role')}</label>
@@ -146,9 +153,9 @@ function UsersTab() {
               </select>
             </div>
             <div className="col-span-2 flex justify-end gap-2">
-              <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
-              <button type="submit" disabled={createUser.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
-                {createUser.isPending ? t('common.adding') : t('settings.addUser')}
+              <button type="button" onClick={() => { setShowAdd(false); setEditingUserId(null) }} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl">{t('common.cancel')}</button>
+              <button type="submit" disabled={createUser.isPending || updateUser.isPending} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
+                {createUser.isPending || updateUser.isPending ? t('common.saving', 'Saving...') : (editingUserId ? t('common.save', 'Save Changes') : t('settings.addUser'))}
               </button>
             </div>
           </form>
@@ -176,6 +183,13 @@ function UsersTab() {
                   ]}
                   actions={
                     <div className="flex justify-end gap-3">
+                      <button onClick={() => {
+                        setEditingUserId(u.id)
+                        setForm({ username: u.username, email: u.email || '', password: '', role_id: u.role_id ? String(u.role_id) : '' })
+                        setShowAdd(true)
+                      }} className="text-xs text-blue-500 hover:text-blue-700 font-medium">
+                        {t('common.edit', 'Edit')}
+                      </button>
                       <button onClick={() => { setTabsUser(u); setSelectedTabs(u.visible_tabs || []) }} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium">
                         Manage Tabs
                       </button>
@@ -974,8 +988,15 @@ function ClinicTab() {
   const { data: clinic, isLoading } = useClinic()
   const updateClinic = useUpdateClinic()
   const uploadLogo = useUploadClinicLogo()
+  const loginMessaging = useLoginMessagingProvider()
+  const logoutMessaging = useLogoutMessagingProvider()
 
   const [form, setForm] = useState<ClinicInput | null>(null)
+  
+  // Messaging auth form state
+  const [messagingEmail, setMessagingEmail] = useState('')
+  const [messagingPassword, setMessagingPassword] = useState('')
+  const [messagingExpiresIn, setMessagingExpiresIn] = useState('30d')
 
   // Initialize form when clinic data arrives
   if (clinic && form === null) {
@@ -987,6 +1008,14 @@ function ClinicTab() {
       whatsapp: clinic.whatsapp || '',
       website: clinic.website || '',
       app_link: clinic.app_link || '',
+      notification_settings: clinic.notification_settings || {
+        send_prescription: { whatsapp: false },
+        send_followup_reminder: { sms: false, whatsapp: false, days_early: 1 },
+        send_lab_report: { whatsapp: false },
+        appointment_schedule: { sms: false, whatsapp: false },
+        next_appointment_schedule: { sms: false, whatsapp: false },
+        treatment_reminder: { sms: false, whatsapp: false }
+      }
     })
   }
 
@@ -1000,6 +1029,39 @@ function ClinicTab() {
   const setField = (field: keyof ClinicInput) => (e: ChangeEvent<HTMLInputElement>) => {
     if (form) setForm({ ...form, [field]: e.target.value })
   }
+
+  const setNestedField = (category: keyof NonNullable<ClinicInput['notification_settings']>, field: string, value: any) => {
+    if (form) {
+      const currentSettings: any = form.notification_settings || {
+        send_prescription: { whatsapp: false },
+        send_followup_reminder: { sms: false, whatsapp: false, days_early: 1 },
+        send_lab_report: { whatsapp: false },
+        appointment_schedule: { sms: false, whatsapp: false },
+        next_appointment_schedule: { sms: false, whatsapp: false },
+        treatment_reminder: { sms: false, whatsapp: false }
+      }
+      setForm({
+        ...form,
+        notification_settings: {
+          ...currentSettings,
+          [category]: {
+            ...(currentSettings[category] || {}),
+            [field]: value
+          }
+        }
+      })
+    }
+  }
+
+  const Toggle = ({ checked, onChange, label }: { checked: boolean, onChange: (val: boolean) => void, label: string }) => (
+    <label className="flex items-center gap-3 cursor-pointer">
+      <div className="relative inline-flex items-center">
+        <input type="checkbox" className="sr-only peer" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+      </div>
+      <span className="text-sm font-medium text-slate-700">{label}</span>
+    </label>
+  )
 
   const compressImage = (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
@@ -1110,6 +1172,121 @@ function ClinicTab() {
             <input type="url" className={inputCls} value={form.app_link} onChange={setField('app_link')} />
           </div>
         </div>
+        
+        <div className="mt-8 pt-6 border-t border-slate-100">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-bold text-slate-800">{t('settings.notificationSettings', 'Notification Settings')}</h4>
+            {clinic?.is_messaging_authenticated && (
+              <button 
+                type="button" 
+                onClick={async () => {
+                  if (confirm(t('settings.confirmDisconnect', 'Are you sure you want to disconnect the messaging provider?'))) {
+                    await logoutMessaging.mutateAsync()
+                    alert(t('settings.disconnected', 'Messaging provider disconnected'))
+                  }
+                }}
+                disabled={logoutMessaging.isPending}
+                className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                {logoutMessaging.isPending ? t('common.disconnecting', 'Disconnecting...') : t('settings.disconnectProvider', 'Disconnect Provider')}
+              </button>
+            )}
+          </div>
+          
+          {!clinic?.is_messaging_authenticated ? (
+            <div className="p-6 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-4 max-w-md">
+              <h5 className="text-sm font-semibold text-slate-800">{t('settings.connectProvider', 'Connect Messaging Provider')}</h5>
+              <p className="text-xs text-slate-500">{t('settings.connectProviderDesc', 'Please login to enable SMS and WhatsApp notifications.')}</p>
+              
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{t('common.email', 'Email')}</label>
+                  <input type="email" required className={inputCls} value={messagingEmail} onChange={e => setMessagingEmail(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{t('common.password', 'Password')}</label>
+                  <input type="password" required className={inputCls} value={messagingPassword} onChange={e => setMessagingPassword(e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{t('settings.expiresIn', 'Expires In')}</label>
+                  <select className={inputCls} value={messagingExpiresIn} onChange={e => setMessagingExpiresIn(e.target.value)}>
+                    <option value="30d">30 Days</option>
+                    <option value="1y">1 Year</option>
+                    <option value="never">Never Expires</option>
+                  </select>
+                </div>
+                <button 
+                  type="button"
+                  disabled={loginMessaging.isPending || !messagingEmail || !messagingPassword}
+                  onClick={async () => {
+                    try {
+                      await loginMessaging.mutateAsync({ email: messagingEmail, password: messagingPassword, expires_in: messagingExpiresIn })
+                      alert(t('settings.connected', 'Messaging provider connected successfully'))
+                    } catch (err: any) {
+                      alert(err.response?.data?.detail || t('common.error', 'Failed to connect'))
+                    }
+                  }}
+                  className="w-full px-4 py-2 mt-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60 transition-colors"
+                >
+                  {loginMessaging.isPending ? t('common.connecting', 'Connecting...') : t('settings.connect', 'Connect')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+              <span className="text-sm font-semibold text-slate-700">Send Prescription</span>
+              <div className="flex items-center gap-6">
+                <Toggle checked={form.notification_settings?.send_prescription?.whatsapp || false} onChange={(v) => setNestedField('send_prescription', 'whatsapp', v)} label="WhatsApp" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+              <span className="text-sm font-semibold text-slate-700">Followup Reminder</span>
+              <div className="flex flex-wrap items-center gap-6">
+                <Toggle checked={form.notification_settings?.send_followup_reminder?.sms || false} onChange={(v) => setNestedField('send_followup_reminder', 'sms', v)} label="SMS" />
+                <Toggle checked={form.notification_settings?.send_followup_reminder?.whatsapp || false} onChange={(v) => setNestedField('send_followup_reminder', 'whatsapp', v)} label="WhatsApp" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-600">Days early:</span>
+                  <input type="number" min="1" max="30" className="w-16 border border-slate-300 rounded px-2 py-1 text-sm bg-white" value={form.notification_settings?.send_followup_reminder?.days_early || 1} onChange={(e) => setNestedField('send_followup_reminder', 'days_early', Number(e.target.value))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+              <span className="text-sm font-semibold text-slate-700">Lab Report</span>
+              <div className="flex items-center gap-6">
+                <Toggle checked={form.notification_settings?.send_lab_report?.whatsapp || false} onChange={(v) => setNestedField('send_lab_report', 'whatsapp', v)} label="WhatsApp" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+              <span className="text-sm font-semibold text-slate-700">Appointment Schedule</span>
+              <div className="flex items-center gap-6">
+                <Toggle checked={form.notification_settings?.appointment_schedule?.sms || false} onChange={(v) => setNestedField('appointment_schedule', 'sms', v)} label="SMS" />
+                <Toggle checked={form.notification_settings?.appointment_schedule?.whatsapp || false} onChange={(v) => setNestedField('appointment_schedule', 'whatsapp', v)} label="WhatsApp" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+              <span className="text-sm font-semibold text-slate-700">Next Appointment Schedule Date</span>
+              <div className="flex items-center gap-6">
+                <Toggle checked={form.notification_settings?.next_appointment_schedule?.sms || false} onChange={(v) => setNestedField('next_appointment_schedule', 'sms', v)} label="SMS" />
+                <Toggle checked={form.notification_settings?.next_appointment_schedule?.whatsapp || false} onChange={(v) => setNestedField('next_appointment_schedule', 'whatsapp', v)} label="WhatsApp" />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+              <span className="text-sm font-semibold text-slate-700">Treatment Reminder (If Due)</span>
+              <div className="flex items-center gap-6">
+                <Toggle checked={form.notification_settings?.treatment_reminder?.sms || false} onChange={(v) => setNestedField('treatment_reminder', 'sms', v)} label="SMS" />
+                <Toggle checked={form.notification_settings?.treatment_reminder?.whatsapp || false} onChange={(v) => setNestedField('treatment_reminder', 'whatsapp', v)} label="WhatsApp" />
+              </div>
+            </div>
+          </div>
+          )}
+        </div>
+
         <div className="pt-4 flex justify-end">
           <button type="submit" disabled={updateClinic.isPending} className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">
             {updateClinic.isPending ? t('common.saving', 'Saving...') : t('common.save', 'Save Changes')}

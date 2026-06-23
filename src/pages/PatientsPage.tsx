@@ -55,6 +55,7 @@ const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-s
 export default function PatientsPage() {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<PatientFormState>(EMPTY_FORM)
   const [formError, setFormError] = useState('')
@@ -62,7 +63,12 @@ export default function PatientsPage() {
   const [visibleCount, setVisibleCount] = useState(20)
   const observerTarget = useRef<HTMLDivElement>(null)
 
-  const { data: patients, isLoading } = usePatients(search || undefined)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const { data: patients, isLoading } = usePatients(debouncedSearch || undefined)
   const create = useCreatePatient()
   const remove = useDeletePatient()
 

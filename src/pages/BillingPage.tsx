@@ -9,6 +9,7 @@ import { suggestBill } from '../api/billing'
 import { Icons } from '../components/Icons'
 import { ItemAutocomplete } from '../components/ItemAutocomplete'
 import { InvoiceModal } from '../components/InvoiceModal'
+import { PaymentModal } from '../components/PaymentModal'
 import type { Invoice, InvoiceInput, Patient } from '../types'
 
 const inputCls = 'w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white'
@@ -211,6 +212,7 @@ export default function BillingPage() {
   const [confirmDelete, setConfirmDelete] = useState<Invoice | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null)
+  const [payingInvoice, setPayingInvoice] = useState<number | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
 
   useEffect(() => {
@@ -372,7 +374,13 @@ export default function BillingPage() {
                     expanded={expandedId === inv.id}
                     patientName={patientMap[inv.patient_id] || t('billing.patientNum', { id: inv.patient_id })}
                     onToggle={() => setExpandedId(expandedId === inv.id ? null : inv.id)}
-                    onStatusChange={status => updateStatus.mutate({ id: inv.id, status })}
+                    onStatusChange={status => {
+                      if (status === 'Paid') {
+                        setPayingInvoice(inv.id)
+                      } else {
+                        updateStatus.mutate({ id: inv.id, data: { status } })
+                      }
+                    }}
                     onEdit={() => setEditingInvoice(inv)}
                     onDelete={() => setConfirmDelete(inv)}
                   />
@@ -443,6 +451,18 @@ export default function BillingPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Payment Details Modal */}
+      {payingInvoice && (
+        <PaymentModal
+          invoiceId={payingInvoice}
+          onClose={() => setPayingInvoice(null)}
+          onSave={(data) => {
+            updateStatus.mutate({ id: payingInvoice, data })
+            setPayingInvoice(null)
+          }}
+        />
       )}
     </div>
   )

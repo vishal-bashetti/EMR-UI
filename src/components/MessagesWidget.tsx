@@ -7,10 +7,10 @@ import { Icons } from './Icons'
 
 export function MessagesWidget({ isCollapsed }: { isCollapsed: boolean }) {
   const { t } = useTranslation()
-  const { data: inbox } = useInbox()
-  const { data: users } = useUsers()
-  const markRead = useMarkMessageRead()
   const [isOpen, setIsOpen] = useState(false)
+  const { data: inbox } = useInbox({ enabled: isOpen })
+  const { data: users } = useUsers({ enabled: isOpen })
+  const markRead = useMarkMessageRead()
   const menuRef = useRef<HTMLDivElement>(null)
 
   const unreadCount = inbox?.filter(m => m.status === 'Unread').length || 0

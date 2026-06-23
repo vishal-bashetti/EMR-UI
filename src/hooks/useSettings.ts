@@ -20,6 +20,7 @@ export const useClinic = () =>
   useQuery({
     queryKey: ['clinic'],
     queryFn: getClinic,
+    staleTime: 5 * 60_000,
   })
 
 export const useUpdateClinic = () => {
@@ -36,6 +37,28 @@ export const useUploadClinicLogo = () => {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (file: File) => uploadClinicLogo(file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clinic'] })
+    },
+  })
+}
+
+import { loginMessagingProvider, logoutMessagingProvider } from '../api/settings'
+
+export const useLoginMessagingProvider = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Parameters<typeof loginMessagingProvider>[0]) => loginMessagingProvider(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clinic'] })
+    },
+  })
+}
+
+export const useLogoutMessagingProvider = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => logoutMessagingProvider(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clinic'] })
     },
