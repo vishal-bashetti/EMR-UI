@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
 import { usePatients, useCreatePatient, useDeletePatient } from '../hooks/usePatients'
 import { Icons } from '../components/Icons'
+import { useMe } from '../hooks/useUsers'
+import { can } from '../utils/workflow'
+import { PatientQuickPreviewDrawer } from '../components/PatientQuickPreviewDrawer'
 import type { Patient } from '../types'
 
 interface PatientFormState {
@@ -29,11 +32,9 @@ const EMPTY_FORM: PatientFormState = {
 }
 
 function Avatar({ name }: { name: string }) {
-  const colors = ['bg-blue-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500']
-  const idx = name ? name.charCodeAt(0) % colors.length : 0
   const initials = name ? name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) : '?'
   return (
-    <div className={`w-9 h-9 ${colors[idx]} rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0`}>
+    <div className="size-10 rounded-xl bg-gradient-to-br from-emerald-100 to-teal-50 text-emerald-800 border border-emerald-200/60 flex items-center justify-center text-xs font-bold shrink-0 shadow-2xs">
       {initials}
     </div>
   )
@@ -50,25 +51,34 @@ function Field({ label, children, required, col2 }: { label: string; children: R
   )
 }
 
-const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-shadow'
+const inputCls = 'w-full border border-border rounded-md px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 bg-white transition-shadow'
 
 export default function PatientsPage() {
   const { t } = useTranslation()
-  const [search, setSearch] = useState('')
+  const { data: me } = useMe()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const search = searchParams.get('search') || ''
+  const setSearch = (value: string) => setSearchParams(value ? { search: value } : {}, { replace: true })
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(searchParams.get('action') === 'new')
   const [form, setForm] = useState<PatientFormState>(EMPTY_FORM)
   const [formError, setFormError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<Patient | null>(null)
   const [visibleCount, setVisibleCount] = useState(20)
-  const observerTarget = useRef<HTMLDivElement>(null)
+  const [previewPatient, setPreviewPatient] = useState<Patient | null>(null)
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'new') {
+      setShowForm(true)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
 
-  const { data: patients, isLoading } = usePatients(debouncedSearch || undefined)
+  const { data: patients, isLoading, isError, refetch } = usePatients(debouncedSearch || undefined)
   const create = useCreatePatient()
   const remove = useDeletePatient()
 
@@ -76,27 +86,12 @@ export default function PatientsPage() {
     setVisibleCount(20)
   }, [search])
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      entries => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount(prev => prev + 20)
-        }
-      },
-      { root: null, rootMargin: '0px', threshold: 0.1 }
-    )
-    if (observerTarget.current) {
-      observer.observe(observerTarget.current)
-    }
-    return () => observer.disconnect()
-  }, [])
-
   const set = (key: keyof PatientFormState) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }))
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    
+
     // Validations
     if (form.dob) {
       const selectedDate = new Date(form.dob)
@@ -127,37 +122,41 @@ export default function PatientsPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="workspace-page">
       {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="card p-6 bg-gradient-to-r from-white via-emerald-50/20 to-white border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-4 mb-7">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{t('patients.title')}</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
-            {t('patients.activeRecords', { count: patients?.length ?? 0 })}
-          </p>
+          <p className="workspace-eyebrow">Patient care</p>
+          <h1 className="workspace-heading">{t('patients.title')}</h1>
+          <p className="text-sm text-slate-500 mt-1 text-pretty">Find a patient, review their chart, and continue their care.</p>
         </div>
-        <button
+        {can(me, 'manage_patients') && <button
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors shadow-sm shadow-blue-200"
+          className="btn btn-primary px-4 py-2.5 shadow-sm shadow-emerald-700/20"
         >
           {Icons.plus} {t('patients.newPatient')}
-        </button>
+        </button>}
       </div>
 
       {/* Search */}
-      <div className="relative mb-5 max-w-sm">
+      <div className="card overflow-hidden">
+      <div className="workspace-toolbar">
+      <div><h2 className="font-semibold text-slate-800">Patient directory</h2><p className="mt-1 text-xs text-slate-500">{isLoading ? 'Loading records…' : isError ? 'Records unavailable' : `${patients?.length ?? 0} ${search ? 'matching' : 'available'} records`}</p></div>
+      <div className="relative w-full sm:max-w-sm">
         <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">{Icons.search}</span>
         <input
           type="text"
+          aria-label="Search patient directory"
           placeholder={t('patients.searchPlaceholder')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-white text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+          className="w-full pl-10 pr-4 py-2.5 border border-border rounded-xl text-sm bg-slate-50 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
         />
+      </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden max-h-[60vh] overflow-y-auto relative">
+      <div className="overflow-x-auto relative">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="animate-spin w-6 h-6 text-blue-500" viewBox="0 0 24 24" fill="none">
@@ -165,8 +164,8 @@ export default function PatientsPage() {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
             </svg>
           </div>
-        ) : (
-          <table className="w-full text-sm">
+        ) : isError ? <div role="alert" className="p-8 text-sm text-red-700">Could not load patients. <button className="underline" onClick={() => refetch()}>Try again</button></div> : (
+          <table className="data-table min-w-[720px]">
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-100 shadow-sm">
               <tr>
                 {[t('patients.colPatient'), t('patients.colDob'), t('patients.colGender'), t('patients.colContact'), t('patients.colBloodGroup'), ''].map((h, i) => (
@@ -185,17 +184,17 @@ export default function PatientsPage() {
                       <div className="flex items-center gap-3">
                         <Avatar name={name} />
                         <div>
-                          <p className="font-semibold text-slate-800">{name}</p>
-                          <p className="text-xs text-slate-400">{p.email || t('common.noEmail')}</p>
+                          <Link to={`/patients/${p.id}`} className="font-semibold text-slate-800 hover:text-primary-700 hover:underline">{name}</Link>
+                          <p className="text-xs text-slate-500 mt-1">{p.opd_number || `Patient #${p.id}`}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-slate-500">{p.dob}</td>
+                    <td className="px-5 py-4 text-slate-500">{p.dob || '—'}</td>
                     <td className="px-5 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        p.gender === 'Male' ? 'bg-blue-50 text-blue-700' :
+                      <span className={`badge ${
+                        p.gender === 'Male' ? 'badge-blue' :
                         p.gender === 'Female' ? 'bg-pink-50 text-pink-700' :
-                        'bg-slate-100 text-slate-600'
+                        'badge-slate'
                       }`}>
                         {p.gender}
                       </span>
@@ -203,7 +202,7 @@ export default function PatientsPage() {
                     <td className="px-5 py-4 text-slate-500">{p.contact_number}</td>
                     <td className="px-5 py-4">
                       {p.blood_group ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 bg-red-50 text-red-700 rounded-full text-xs font-bold">
+                        <span className="inline-flex items-center text-[11px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-rose-600 to-red-700 text-white shadow-2xs">
                           {p.blood_group}
                         </span>
                       ) : (
@@ -212,20 +211,31 @@ export default function PatientsPage() {
                     </td>
                     <td className="px-5 py-4 pr-6 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewPatient(p)}
+                          className="btn-icon hover:text-emerald-700 hover:bg-emerald-50"
+                          title="Quick Preview (Section 30)"
+                          aria-label={`Preview ${name}`}
+                        >
+                          {Icons.user}
+                        </button>
                         <Link
                           to={`/patients/${p.id}`}
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="btn-icon"
                           title={t('patients.viewPatient')}
+                          aria-label={`${t('patients.viewPatient')}: ${name}`}
                         >
                           {Icons.eye}
                         </Link>
-                        <button
+                        {can(me, 'manage_patients') && <button
                           onClick={() => setConfirmDelete(p)}
-                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          className="btn-icon hover:text-red-600 hover:bg-red-50 hover:border-red-200"
                           title={t('patients.deletePatient')}
+                          aria-label={`${t('patients.deletePatient')}: ${name}`}
                         >
                           {Icons.trash}
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -249,26 +259,28 @@ export default function PatientsPage() {
           </table>
         )}
         {patients && visibleCount < patients.length && (
-          <div ref={observerTarget} className="h-4 w-full" />
+          <div className="p-4 text-center"><button className="btn btn-secondary" onClick={() => setVisibleCount(count => count + 20)}>Load more patients</button></div>
         )}
+      </div>
+      <div className="px-5 py-3 border-t border-slate-100 text-xs text-slate-500">{!isLoading && !isError && `${Math.min(visibleCount, patients?.length ?? 0)} records shown`}<span className="float-right hidden sm:inline">Select a patient to open their chart</span></div>
       </div>
 
       {/* Add Patient Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+        <div className="modal-overlay">
+          <div className="modal-container max-w-2xl">
+            <div className="modal-header">
               <div>
                 <h2 className="text-base font-bold text-slate-900">{t('patients.modalTitle')}</h2>
                 <p className="text-xs text-slate-400 mt-0.5">{t('patients.modalSubtitle')}</p>
               </div>
-              <button onClick={() => setShowForm(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+              <button onClick={() => setShowForm(false)} className="btn-icon">
                 {Icons.x}
               </button>
             </div>
 
             <form onSubmit={handleSubmit}>
-              <div className="px-6 py-5 bg-slate-50/50 border-b border-slate-100">
+              <div className="px-5 py-4 bg-slate-50 border-b border-border">
                 <div className="w-full sm:w-1/2 pr-0 sm:pr-2">
                   <Field label="OPD Number" required>
                     <input className={inputCls} value={form.opd_number} onChange={set('opd_number')} required placeholder="OPD-12345" />
@@ -319,17 +331,17 @@ export default function PatientsPage() {
               </Field>
 
               {formError && (
-                <div className="col-span-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 text-sm text-red-600">
+                <div className="col-span-2 bg-red-50 border border-red-200 rounded-md px-4 py-2 text-sm text-red-600">
                   {formError}
                 </div>
               )}
               <div className="col-span-2 flex justify-end gap-3 pt-2 border-t border-slate-100 mt-2">
                 <button type="button" onClick={() => { setShowForm(false); setFormError('') }}
-                  className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                  className="btn btn-secondary">
                   {t('common.cancel')}
                 </button>
                 <button type="submit" disabled={create.isPending}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors">
+                  className="btn btn-primary px-5 py-2">
                   {create.isPending ? t('common.saving') : t('patients.savePatient')}
                 </button>
               </div>
@@ -341,9 +353,9 @@ export default function PatientsPage() {
 
       {/* Delete confirm */}
       {confirmDelete && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center mb-4 text-red-500">
+        <div className="modal-overlay">
+          <div className="bg-white rounded-lg shadow-modal w-full max-w-sm p-6">
+            <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4 text-red-500">
               {Icons.trash}
             </div>
             <h3 className="text-base font-bold text-slate-900">{t('patients.deleteTitle')}</h3>
@@ -351,12 +363,12 @@ export default function PatientsPage() {
               {t('patients.deleteConfirm', { name: `${confirmDelete.first_name} ${confirmDelete.last_name}` })}
             </p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+              <button onClick={() => setConfirmDelete(null)} className="btn btn-secondary flex-1">
                 {t('common.cancel')}
               </button>
               <button
                 onClick={() => { remove.mutate(confirmDelete.id); setConfirmDelete(null) }}
-                className="flex-1 py-2.5 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 rounded-xl transition-colors"
+                className="btn btn-danger flex-1"
               >
                 {t('common.delete')}
               </button>
@@ -364,6 +376,12 @@ export default function PatientsPage() {
           </div>
         </div>
       )}
+
+      {/* Section 30: Patient Quick Preview Drawer */}
+      <PatientQuickPreviewDrawer
+        patient={previewPatient}
+        onClose={() => setPreviewPatient(null)}
+      />
     </div>
   )
 }

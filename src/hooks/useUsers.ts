@@ -16,13 +16,13 @@ import {
   uploadSignature,
   updateUserTabs,
 } from '../api/users'
-import type { UserInput, RoleInput } from '../types'
+import type { User, UserInput, RoleInput } from '../types'
 
 export const useMe = () => useQuery({ queryKey: ['me'], queryFn: getMe, staleTime: 5 * 60_000 })
 
-export const useUsers = (options?: any) => useQuery({ queryKey: ['users'], queryFn: getUsers, ...options })
+export const useUsers = (options?: any) => useQuery<User[]>({ queryKey: ['users'], queryFn: getUsers, ...options })
 
-export const useDoctors = () => useQuery({ queryKey: ['doctors'], queryFn: getDoctors })
+export const useDoctors = () => useQuery<User[]>({ queryKey: ['doctors'], queryFn: getDoctors })
 
 export const useCreateUser = () => {
   const qc = useQueryClient()

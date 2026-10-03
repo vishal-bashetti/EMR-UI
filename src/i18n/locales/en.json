@@ -314,6 +314,7 @@
     "tabDrugs": "Drugs",
     "tabLab": "Lab Catalog",
     "tabStatuses": "Appt. Statuses",
+    "tabLis": "LIS Integration",
     "usersCount": "Users ({{count}})",
     "addUser": "Add User",
     "username": "Username",

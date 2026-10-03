@@ -16,6 +16,7 @@ export const useSettings = () =>
     },
   })
 
+
 export const useClinic = () =>
   useQuery({
     queryKey: ['clinic'],
@@ -64,3 +65,29 @@ export const useLogoutMessagingProvider = () => {
     },
   })
 }
+
+import { syncTemplates, getTemplates, getMessageBalance } from '../api/settings'
+
+export const useSyncTemplates = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => syncTemplates(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['templates'] })
+    },
+  })
+}
+
+export const useTemplates = (enabled: boolean = true) =>
+  useQuery({
+    queryKey: ['templates'],
+    queryFn: getTemplates,
+    enabled,
+  })
+
+export const useMessageBalance = (enabled: boolean = true) =>
+  useQuery({
+    queryKey: ['messageBalance'],
+    queryFn: getMessageBalance,
+    enabled,
+  })

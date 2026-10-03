@@ -46,11 +46,9 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
 
       {/* ───── Clinic Letterhead ───── */}
       <div className="flex items-start border-b-2 border-slate-800 pb-5 mb-6">
-        {c?.logo_path && (
-          <div className="shrink-0 mr-5">
-            <img src={`/api/${c.logo_path.replace(/\\/g, '/')}`} alt="Logo" className="w-20 h-20 object-contain" />
-          </div>
-        )}
+        <div className="shrink-0 mr-5">
+          <img src={c?.logo_path ? `/api/${c.logo_path.replace(/\\/g, '/')}` : '/logo.png'} alt="Logo" className="w-20 h-20 object-contain" />
+        </div>
         <div className="flex-1 text-center">
           <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">{c?.name || 'Clinic'}</h1>
           {c?.address && <p className="text-sm text-slate-600 mt-1">{c.address}</p>}
@@ -64,7 +62,7 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
           )}
         </div>
         {/* spacer to balance logo on left */}
-        {c?.logo_path && <div className="w-20 shrink-0" />}
+        <div className="w-20 shrink-0" />
       </div>
 
       {/* ───── Patient Info Bar ───── */}
@@ -94,7 +92,7 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
       {type === 'report' && (
         <div className="space-y-6">
           <h2 className="text-lg font-bold text-slate-900 border-b border-slate-200 pb-2 uppercase tracking-wide">Medical Report</h2>
-          
+
           {visit.vitals && visit.vitals.length > 0 && (
             <div>
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Vitals</h3>
@@ -130,7 +128,7 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
               </ul>
             </div>
           )}
-          
+
           {visit.encounter.quick_notes && (
             <div>
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Clinical Notes</h3>
@@ -142,6 +140,13 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
             <div>
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Advice</h3>
               <p className="text-slate-800 whitespace-pre-wrap leading-relaxed">{visit.encounter.advice}</p>
+            </div>
+          )}
+
+          {visit.encounter.followup_date && (
+            <div>
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Next Followup</h3>
+              <p className="font-bold text-slate-800">{new Date(visit.encounter.followup_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
             </div>
           )}
         </div>
@@ -156,7 +161,7 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
             <span className="text-5xl font-serif text-slate-300 italic leading-none">Rx</span>
             <h2 className="text-lg font-bold text-slate-900 uppercase tracking-wide">Prescription</h2>
           </div>
-          
+
           {prescriptionItems.length > 0 ? (
             <table className="w-full text-sm text-left border-collapse">
               <thead>
@@ -192,6 +197,13 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
             <div className="mt-8 p-4 bg-slate-50 rounded-lg border border-slate-200">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Advice &amp; Instructions</h3>
               <p className="text-slate-800 whitespace-pre-wrap leading-relaxed">{visit.encounter.advice}</p>
+            </div>
+          )}
+
+          {visit.encounter.followup_date && (
+            <div className="mt-4 p-4 bg-blue-50/50 rounded-lg border border-blue-100 flex items-center justify-between">
+              <h3 className="text-xs font-bold text-blue-600 uppercase tracking-widest">Next Followup</h3>
+              <p className="font-bold text-lg text-blue-900">{new Date(visit.encounter.followup_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
             </div>
           )}
         </div>

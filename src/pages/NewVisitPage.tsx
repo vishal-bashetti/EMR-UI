@@ -3,36 +3,52 @@ import type { FormEvent, ReactNode } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { isAxiosError } from 'axios'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { usePatient } from '../hooks/usePatients'
 import { useMe } from '../hooks/useUsers'
 import { useVitalConfigs, useCreateVisit, useUpdateVisit } from '../hooks/useVisits'
-import { useAppointmentStatuses, useAppointments, useCreateAppointment, useUpdateAppointmentStatus } from '../hooks/useAppointments'
+import { useAppointmentStatuses, useAppointments, useCreateAppointment } from '../hooks/useAppointments'
 import { useLabCatalog, useLatestLabResults, useComboCatalog, useOrderCombo } from '../hooks/useLabResults'
+import { useLISStatus } from '../hooks/useLISIntegration'
 import { useDrugs, useCreateDrug } from '../hooks/useDrugs'
-import { getLastVisit, getVisitById, getDiagnosisSuggestions, getTreatmentSuggestions } from '../api/visits'
+import { useClinicalTemplates, useCreateClinicalTemplate } from '../hooks/useClinicalTemplates'
+import { getLastVisit, getVisitById, getDiagnosisSuggestions, getTreatmentSuggestions, submitVisitLabOrder } from '../api/visits'
+import { getAllergies } from '../api/clinicalHistory'
 import { Icons } from '../components/Icons'
 import { SuggestionInput } from '../components/SuggestionInput'
 import { PrintableVisit } from '../components/PrintableVisit'
-import { AiBot } from '../components/AiBot'
+import { AiChartSummary } from '../components/AiChartSummary'
+import { ConsultationContext } from '../components/ConsultationContext'
+import { PatientBrainSidebar } from '../components/PatientBrainSidebar'
+import { PGAssistantDrawer } from '../components/PGAssistantDrawer'
+import { PreparePatientModal } from '../components/PreparePatientModal'
+import { ChangesSinceLastVisitModal } from '../components/ChangesSinceLastVisitModal'
+import { OpenLoopsModal } from '../components/OpenLoopsModal'
+import { MedicationIntelligenceModal } from '../components/MedicationIntelligenceModal'
+import { SmartPlanExtractionModal } from '../components/SmartPlanExtractionModal'
 import { useClinic } from '../hooks/useSettings'
-import type { Drug, PrescriptionInput, VitalConfig, VisitPayload, VisitResponse } from '../types'
+import * as AlertDialog from '@radix-ui/react-alert-dialog'
+import { ClinicalAiAssistant } from '../components/ClinicalAiAssistant'
+import { consultationPath } from '../utils/workflow'
+import { startAppointment } from '../api/appointments'
+import { cn } from '../utils/cn'
+import type { Drug, PrescriptionInput, VitalConfig, VisitPayload, Encounter, VisitResponse } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ComplaintRow { complaint: string; from_date: string; duration: string }
 interface DiagnosisRow { diagnosis: string; date: string }
 interface TreatmentRow { treatment: string; due_date: string }
-interface LabItem { id: number; name: string; price: number }
+interface LabItem { id: number; name: string; price: number; lis_code?: string; lis_test_codes?: string[] }
 type CarryStatus = 'loading' | 'loaded' | 'none' | 'error' | null
 
 // Sidebar section keys — used for scrollspy and navigation
-type SectionKey = 'overview' | 'vitals' | 'complaints' | 'diagnoses' | 'treatments' | 'prescriptions' | 'labs'
+type SectionKey = 'overview' | 'vitals' | 'complaints' | 'diagnoses' | 'treatments' | 'prescriptions' | 'labs' | 'followup' | 'assistant'
 
 // ─── Shared style primitives ──────────────────────────────────────────────────
 
-const inputCls = 'w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white transition-shadow'
-const smallInputCls = 'border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white'
+const inputCls = 'w-full border border-border rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 bg-white'
+const smallInputCls = 'border border-border rounded-md px-2.5 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 bg-white'
 const labelCls = 'block text-xs font-semibold text-slate-600 mb-1.5'
 
 function FormSection({
@@ -48,15 +64,15 @@ function FormSection({
   return (
     <section
       id={`visit-section-${id}`}
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden scroll-mt-4"
+      className="card scroll-mt-4 shadow-xs relative focus-within:z-20"
     >
-      <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50/60">
-        <div className="w-7 h-7 flex items-center justify-center rounded-lg bg-white border border-slate-200 text-blue-600 shadow-sm shrink-0">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100/80 bg-gradient-to-r from-slate-50/70 via-emerald-50/20 to-transparent rounded-t-xl">
+        <div aria-hidden="true" className="size-9 flex items-center justify-center rounded-xl badge-icon-emerald shrink-0 shadow-2xs">
           {icon}
         </div>
-        <span className="text-sm font-bold text-slate-700 tracking-tight">{title}</span>
+        <h2 className="text-sm font-semibold text-slate-800 text-balance">{title}</h2>
         {badge !== undefined && badge > 0 && (
-          <span className="ml-auto text-xs font-bold bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">{badge}</span>
+          <span className="ml-auto text-xs font-bold bg-gradient-to-r from-emerald-100 to-teal-100 text-emerald-800 px-2 py-0.5 rounded-full shadow-2xs">{badge}</span>
         )}
         {headerAction && <div className="ml-auto">{headerAction}</div>}
       </div>
@@ -68,7 +84,7 @@ function FormSection({
 function AddRowButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
     <button type="button" onClick={onClick}
-      className="mt-3 flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg transition-colors -ml-2.5"
+      className="mt-3 flex items-center gap-1.5 text-sm font-medium text-primary-600 hover:text-primary-700 hover:bg-primary-50 px-2.5 py-1.5 rounded-lg transition-colors -ml-2.5"
     >
       {Icons.plus} {label}
     </button>
@@ -84,9 +100,9 @@ const SIDEBAR_GROUPS: {
   items: { key: SectionKey; label: string }[]
 }[] = [
   {
-    label: 'Details',
-    color: 'text-blue-600',
-    accentBg: 'bg-blue-50',
+    label: '1 · Review & document',
+    color: 'text-primary-600',
+    accentBg: 'bg-primary-50',
     items: [
       { key: 'overview', label: 'Visit Overview' },
       { key: 'vitals', label: 'Vitals' },
@@ -94,9 +110,9 @@ const SIDEBAR_GROUPS: {
     ],
   },
   {
-    label: 'Diagnoses',
-    color: 'text-violet-600',
-    accentBg: 'bg-violet-50',
+    label: '2 · Assessment & plan',
+    color: 'text-primary-600',
+    accentBg: 'bg-primary-50',
     items: [
       { key: 'diagnoses', label: 'Diagnoses' },
       { key: 'treatments', label: 'Treatments' },
@@ -104,11 +120,13 @@ const SIDEBAR_GROUPS: {
     ],
   },
   {
-    label: 'Lab / Reports',
-    color: 'text-emerald-600',
-    accentBg: 'bg-emerald-50',
+    label: '3 · Orders & follow-up',
+    color: 'text-primary-600',
+    accentBg: 'bg-primary-50',
     items: [
       { key: 'labs', label: 'Lab Orders' },
+      { key: 'followup', label: 'Follow-up' },
+      { key: 'assistant', label: 'Documentation assistant' },
     ],
   },
 ]
@@ -123,6 +141,7 @@ function VisitSidebar({
   onCancel,
   patientName,
   onBackToPatient,
+  status,
 }: {
   active: SectionKey
   counts: Partial<Record<SectionKey, number>>
@@ -133,24 +152,26 @@ function VisitSidebar({
   onCancel: () => void
   patientName: string
   onBackToPatient: () => void
+  status?: string
 }) {
+  const isNoShowOrCancelled = status === 'No Show' || status === 'Cancelled'
   const scrollTo = (key: SectionKey) => {
     document.getElementById(`visit-section-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return (
-    <aside className="sticky top-0 h-screen w-56 flex flex-col bg-white border-r border-slate-200 shrink-0 overflow-y-auto">
+    <aside aria-label="Consultation sections" className="hidden lg:flex sticky top-0 h-full w-52 flex-col bg-white border-r border-slate-200 shrink-0 overflow-y-auto">
       {/* Top: patient context + back link */}
       <div className="px-3 pt-3 pb-3 border-b border-slate-100">
         <button
           type="button"
           onClick={onBackToPatient}
-          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-blue-50 transition-colors group"
+          className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-primary-50 transition-colors group"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-blue-500 shrink-0 group-hover:text-blue-600">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-primary-500 shrink-0 group-hover:text-primary-600">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
-          <span className="text-xs font-semibold text-slate-600 group-hover:text-blue-700 truncate leading-tight">
+          <span className="text-xs font-semibold text-slate-600 group-hover:text-primary-700 truncate leading-tight">
             {patientName || 'Patient'}
           </span>
         </button>
@@ -160,70 +181,90 @@ function VisitSidebar({
       </div>
 
       {/* Carry-forward */}
-      <div className="px-3 pt-3 pb-3 border-b border-slate-100">
-        <button
-          type="button"
-          onClick={onCarryForward}
-          disabled={carryStatus === 'loading'}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-xl transition-colors border border-slate-200"
-        >
-          {carryStatus === 'loading' ? (
-            <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.9"/></svg>
+      {!isNoShowOrCancelled && (
+        <div className="px-3 pt-3 pb-3 border-b border-slate-100">
+          <button
+            type="button"
+            onClick={onCarryForward}
+            disabled={carryStatus === 'loading'}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-xl transition-colors border border-slate-200"
+          >
+            {carryStatus === 'loading' ? (
+              <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.9"/></svg>
+            )}
+            Load Last Visit
+          </button>
+          {carryStatus === 'loaded' && (
+            <p className="text-center text-[10px] text-emerald-600 font-medium mt-1.5">✓ Previous visit loaded</p>
           )}
-          Load Last Visit
-        </button>
-        {carryStatus === 'loaded' && (
-          <p className="text-center text-[10px] text-emerald-600 font-medium mt-1.5">✓ Previous visit loaded</p>
-        )}
-        {carryStatus === 'none' && (
-          <p className="text-center text-[10px] text-slate-400 mt-1.5">No previous visits found</p>
-        )}
-        {carryStatus === 'error' && (
-          <p className="text-center text-[10px] text-red-500 mt-1.5">Could not load last visit</p>
-        )}
-      </div>
+          {carryStatus === 'none' && (
+            <p className="text-center text-[10px] text-slate-400 mt-1.5">No previous visits found</p>
+          )}
+          {carryStatus === 'error' && (
+            <p className="text-center text-[10px] text-red-500 mt-1.5">Could not load last visit</p>
+          )}
+        </div>
+      )}
 
       {/* Section navigation */}
       <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
-        {SIDEBAR_GROUPS.map(group => (
-          <div key={group.label}>
-            <p className={`text-[9px] font-black uppercase tracking-[0.12em] px-2 mb-1.5 ${group.color}`}>
-              {group.label}
+        {isNoShowOrCancelled ? (
+          <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl text-xs text-amber-900 space-y-2">
+            <p className="font-semibold flex items-center gap-1.5 text-amber-800">
+              <span>⚠️</span> Visit {status}
             </p>
-            <div className="space-y-0.5">
-              {group.items.map(item => {
-                const isActive = active === item.key
-                const count = counts[item.key]
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => scrollTo(item.key)}
-                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-all text-left ${
-                      isActive
-                        ? `${group.accentBg} ${group.color} font-semibold`
-                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>{item.label}</span>
-                    {count !== undefined && count > 0 && (
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
-                        isActive ? `bg-white/70 ${group.color}` : 'bg-slate-100 text-slate-400'
-                      }`}>
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+            <p className="text-[11px] text-amber-700 leading-relaxed">
+              Clinical inputs are hidden because the visit is marked as {status?.toLowerCase()}.
+            </p>
+            <button
+              type="button"
+              onClick={() => scrollTo('overview')}
+              className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white text-slate-800 border border-amber-200 hover:bg-amber-100/50 transition-colors cursor-pointer"
+            >
+              Visit Overview
+            </button>
           </div>
-        ))}
+        ) : (
+          SIDEBAR_GROUPS.map(group => (
+            <div key={group.label}>
+              <p className="text-xs font-medium text-slate-500 px-2 mb-2">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map(item => {
+                  const isActive = active === item.key
+                  const count = counts[item.key]
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => scrollTo(item.key)}
+                      className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-medium transition-all text-left ${
+                        isActive
+                          ? `${group.accentBg} ${group.color} font-semibold`
+                          : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      {count !== undefined && count > 0 && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                          isActive ? `bg-white/70 ${group.color}` : 'bg-slate-100 text-slate-400'
+                        }`}>
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))
+        )}
       </nav>
 
       {/* Bottom: save/cancel */}
@@ -232,24 +273,26 @@ function VisitSidebar({
           type="submit"
           form="visit-form"
           disabled={isPending}
-          className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-xl transition-colors shadow-sm shadow-blue-200"
+          className="btn btn-primary w-full flex items-center justify-center gap-2 py-2.5 cursor-pointer"
         >
           {isPending ? (
             <>
               <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
               Saving…
             </>
+          ) : isNoShowOrCancelled ? (
+            `Save as ${status}`
           ) : (
             <>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5"><polyline points="20 6 9 17 4 12"/></svg>
-              {isEditing ? 'Update Visit' : 'Save Visit'}
+              Review & complete
             </>
           )}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+          className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
         >
           Cancel
         </button>
@@ -258,53 +301,199 @@ function VisitSidebar({
   )
 }
 
+// ─── Component: FieldWithTemplate ─────────────────────────────────────────────
+function FieldWithTemplate({
+  label, value, onChange, placeholder, type, isTextarea = true, className = ''
+}: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type: string; isTextarea?: boolean; className?: string
+}) {
+  const { data: templates } = useClinicalTemplates()
+  const createTemplate = useCreateClinicalTemplate()
+  const [showDropdown, setShowDropdown] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const relevantTemplates = templates?.filter(t => t.type === type) || []
+
+  const handleSave = () => {
+    if (!value.trim()) return alert('Field is empty')
+    const name = window.prompt('Enter template name:')
+    if (name) {
+      createTemplate.mutate({ name, type, content: value })
+    }
+  }
+
+  // close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between mb-1.5">
+        <label className={labelCls + ' !mb-0'}>{label}</label>
+        <div className="flex items-center gap-3 relative" ref={dropdownRef}>
+          {relevantTemplates.length > 0 && (
+            <button type="button" onClick={() => setShowDropdown(!showDropdown)} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+              Load Template
+            </button>
+          )}
+          <button type="button" onClick={handleSave} className="text-xs text-slate-500 hover:text-slate-700 font-medium">
+            Save as Template
+          </button>
+
+          {showDropdown && (
+            <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 shadow-lg rounded-md z-10 py-1 max-h-48 overflow-y-auto">
+              {relevantTemplates.map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 transition-colors"
+                  onClick={() => {
+                    onChange(value ? `${value}\n${t.content}` : t.content || '')
+                    setShowDropdown(false)
+                  }}
+                >
+                  <div className="font-medium text-slate-800">{t.name}</div>
+                  <div className="text-xs text-slate-500 truncate">{t.content}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {isTextarea ? (
+        <textarea className={`${inputCls} min-h-[70px] resize-y`} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+      ) : (
+        <input className={inputCls} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+      )}
+    </div>
+  )
+}
+
+// ─── Section: Next Followup ──────────────────────────────────────────────────
+
+function FollowupSection({
+  followupDays, followupMonths, followupDate,
+  onFollowupDays, onFollowupMonths, onFollowupDate
+}: {
+  followupDays: number | ''; followupMonths: number | ''; followupDate: string
+  onFollowupDays: (v: string) => void; onFollowupMonths: (v: string) => void; onFollowupDate: (v: string) => void
+}) {
+  return (
+    <FormSection id="followup" title="Next Followup" icon={Icons.calendar}>
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+          <input type="number" min="1" className="w-16 bg-transparent text-sm font-medium outline-none" placeholder="0" value={followupDays} onChange={e => onFollowupDays(e.target.value)} />
+          <span className="text-xs text-slate-500 font-medium">Days</span>
+        </div>
+        <span className="text-xs text-slate-400 font-bold">OR</span>
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+          <input type="number" min="1" className="w-16 bg-transparent text-sm font-medium outline-none" placeholder="0" value={followupMonths} onChange={e => onFollowupMonths(e.target.value)} />
+          <span className="text-xs text-slate-500 font-medium">Months</span>
+        </div>
+        <span className="text-xs text-slate-400 font-bold">OR</span>
+        <input type="date" className={`${inputCls} w-auto`} value={followupDate} onChange={e => onFollowupDate(e.target.value)} />
+      </div>
+    </FormSection>
+  )
+}
+
 // ─── Section: Visit Overview ──────────────────────────────────────────────────
 
 function OverviewSection({
   status, reason, notes, quickNotes, advice, statuses,
-  onStatus, onReason, onNotes, onQuickNotes, onAdvice, onPrint,
+  onStatus, onReason, onNotes, onQuickNotes, onAdvice, onPrint, onQuickSave
 }: {
   status: string; reason: string; notes: string; quickNotes: string; advice: string
   statuses?: { id: number; name: string }[]
   onStatus: (v: string) => void; onReason: (v: string) => void
   onNotes: (v: string) => void; onQuickNotes: (v: string) => void; onAdvice: (v: string) => void
   onPrint?: () => void
+  onQuickSave?: () => void
 }) {
   const { t } = useTranslation()
+  const isNoShowOrCancelled = status === 'No Show' || status === 'Cancelled'
+
   return (
-    <FormSection 
-      id="overview" 
-      title={t('visit.overview')} 
+    <FormSection
+      id="overview"
+      title={t('visit.overview')}
       icon={Icons.stethoscope}
-      headerAction={onPrint && (
-        <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors print:hidden">
+      headerAction={!isNoShowOrCancelled && onPrint ? (
+        <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors print:hidden cursor-pointer">
           {Icons.download} Print Report
         </button>
-      )}
+      ) : undefined}
     >
-      <div className="grid grid-cols-2 gap-4">
+      <div className={cn("grid gap-4", isNoShowOrCancelled ? "grid-cols-1 max-w-xl" : "grid-cols-2")}>
         <div>
           <label className={labelCls}>Visit Status</label>
           <select className={inputCls} value={status} onChange={e => onStatus(e.target.value)}>
             {statuses?.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select>
         </div>
-        <div>
-          <label className={labelCls}>{t('visit.reason')}</label>
-          <input className={inputCls} value={reason} onChange={e => onReason(e.target.value)} placeholder={t('visit.reasonPlaceholder')} />
-        </div>
-        <div className="col-span-2">
-          <label className={labelCls}>{t('visit.notes')}</label>
-          <textarea className={`${inputCls} min-h-[80px] resize-y`} value={notes} onChange={e => onNotes(e.target.value)} placeholder={t('visit.notesPlaceholder')} />
-        </div>
-        <div>
-          <label className={labelCls}>{t('visit.quickNotes')}</label>
-          <textarea className={`${inputCls} min-h-[70px] resize-y`} value={quickNotes} onChange={e => onQuickNotes(e.target.value)} placeholder={t('visit.quickNotesPlaceholder')} />
-        </div>
-        <div>
-          <label className={labelCls}>{t('visit.advice')}</label>
-          <textarea className={`${inputCls} min-h-[70px] resize-y`} value={advice} onChange={e => onAdvice(e.target.value)} placeholder={t('visit.advicePlaceholder')} />
-        </div>
+
+        {isNoShowOrCancelled ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-900 space-y-3">
+            <div className="flex items-center gap-2 font-bold text-amber-800 text-sm">
+              <span>⚠️</span>
+              <span>Visit marked as {status}</span>
+            </div>
+            <p className="text-amber-700 leading-relaxed text-xs">
+              All clinical examination, prescription, and investigation inputs are hidden because this visit is marked as {status.toLowerCase()}.
+            </p>
+            {onQuickSave && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={onQuickSave}
+                  className="btn btn-primary text-xs px-4 py-2 font-bold shadow-md shadow-emerald-700/20 cursor-pointer"
+                >
+                  Confirm & Save as {status}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <FieldWithTemplate
+              type="reason"
+              label={t('visit.reason')}
+              value={reason}
+              onChange={onReason}
+              placeholder={t('visit.reasonPlaceholder')}
+              isTextarea={false}
+            />
+            <FieldWithTemplate
+              type="notes"
+              label={t('visit.notes')}
+              value={notes}
+              onChange={onNotes}
+              placeholder={t('visit.notesPlaceholder')}
+              className="col-span-2"
+            />
+            <FieldWithTemplate
+              type="quickNotes"
+              label={t('visit.quickNotes')}
+              value={quickNotes}
+              onChange={onQuickNotes}
+              placeholder={t('visit.quickNotesPlaceholder')}
+            />
+            <FieldWithTemplate
+              type="advice"
+              label={t('visit.advice')}
+              value={advice}
+              onChange={onAdvice}
+              placeholder={t('visit.advicePlaceholder')}
+            />
+          </>
+        )}
       </div>
     </FormSection>
   )
@@ -324,7 +513,7 @@ function VitalsSection({
 
   return (
     <FormSection id="vitals" title={t('visit.vitals')} icon={Icons.heartbeat} badge={filledCount || undefined}>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {vitalConfigs.map(vc => {
           const isComputed = vc.data_type === 'computed'
           const hasValue = !!vitals[vc.id]
@@ -373,13 +562,13 @@ function ComplaintsSection({
     <FormSection id="complaints" title={t('visit.complaints')} icon={Icons.clipboard} badge={complaints.length || undefined}>
       {complaints.length > 0 && (
         <div className="space-y-2 mb-1">
-          <div className="grid grid-cols-[1fr_130px_110px_28px] gap-2 px-1">
+          <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_130px_110px_28px] gap-2 px-1">
             {['Complaint', 'From date', 'Duration', ''].map((h, i) => (
               <span key={i} className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{h}</span>
             ))}
           </div>
           {complaints.map((c, i) => (
-            <div key={i} className="grid grid-cols-[1fr_130px_110px_28px] gap-2 items-center">
+            <div key={i} className="grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_130px_110px_28px] gap-2 items-center">
               <input className={`${smallInputCls} w-full`} value={c.complaint} onChange={e => onUpdate(i, 'complaint', e.target.value)} placeholder={t('visit.complaintPlaceholder')} />
               <input className={`${smallInputCls} w-full`} type="date" value={c.from_date} onChange={e => onUpdate(i, 'from_date', e.target.value)} />
               <input className={`${smallInputCls} w-full`} value={c.duration} onChange={e => onUpdate(i, 'duration', e.target.value)} placeholder={t('visit.durationPlaceholder')} />
@@ -435,17 +624,32 @@ function DiagnosesSection({
 // ─── Section: Treatments ─────────────────────────────────────────────────────
 
 function TreatmentsSection({
-  treatments, onAdd, onRemove, onUpdate, readOnly,
+  treatments, onAdd, onRemove, onUpdate, readOnly, onOpenSmartPlan,
 }: {
   treatments: TreatmentRow[]
   onAdd: () => void
   onRemove: (i: number) => void
   onUpdate: (i: number, field: keyof TreatmentRow, val: string) => void
   readOnly?: boolean
+  onOpenSmartPlan?: () => void
 }) {
   const { t } = useTranslation()
   return (
-    <FormSection id="treatments" title={t('visit.treatments')} icon={Icons.treatment} badge={treatments.length || undefined}>
+    <FormSection
+      id="treatments"
+      title={t('visit.treatments')}
+      icon={Icons.treatment}
+      badge={treatments.length || undefined}
+      headerAction={onOpenSmartPlan && !readOnly ? (
+        <button
+          type="button"
+          onClick={onOpenSmartPlan}
+          className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-lg cursor-pointer"
+        >
+          <span>✦</span> AI Plan Assistant
+        </button>
+      ) : undefined}
+    >
       {treatments.length > 0 && (
         <div className="space-y-2 mb-1">
           <div className={`grid ${readOnly ? 'grid-cols-[1fr_160px]' : 'grid-cols-[1fr_160px_28px]'} gap-2 px-1`}>
@@ -471,14 +675,16 @@ function TreatmentsSection({
 // ─── Section: Prescriptions ───────────────────────────────────────────────────
 
 function PrescriptionsSection({
-  prescriptions, drugSearch, showDropdown, drugResults, drugSearchRef,
-  onSearchChange, onSearchFocus, onAddDrug, onCreateDrug, onRemove, onUpdate, onSaveToCatalog, onPrint
+  prescriptions, drugSearch, showDropdown, drugResults, drugSearchRef, activeAllergies = [],
+  onSearchChange, onSearchFocus, onAddDrug, onCreateDrug, onRemove, onUpdate, onSaveToCatalog, onPrint,
+  onOpenMedIntelligence,
 }: {
   prescriptions: PrescriptionInput[]
   drugSearch: string
   showDropdown: boolean
   drugResults?: Drug[]
   drugSearchRef: React.RefObject<HTMLDivElement | null>
+  activeAllergies?: Array<{ allergen: string; severity: string }>
   onSearchChange: (v: string) => void
   onSearchFocus: () => void
   onAddDrug: (name: string) => void
@@ -487,34 +693,96 @@ function PrescriptionsSection({
   onUpdate: (i: number, field: keyof PrescriptionInput, val: string) => void
   onSaveToCatalog: (name: string) => void
   onPrint?: () => void
+  onOpenMedIntelligence?: () => void
 }) {
   const { t } = useTranslation()
+
+  // Real-time prescription safety checks (Section 19)
+  const allergyConflicts = prescriptions.filter(p =>
+    p.name.trim() && activeAllergies.some(a =>
+      p.name.toLowerCase().includes(a.allergen.toLowerCase()) ||
+      a.allergen.toLowerCase().includes(p.name.toLowerCase())
+    )
+  )
+
+  const duplicates = prescriptions.filter((p, i) =>
+    p.name.trim() && prescriptions.findIndex(other => other.name.trim().toLowerCase() === p.name.trim().toLowerCase()) !== i
+  )
+
+  const applyFrequency = (i: number, freq: 'OD' | 'BD' | 'TDS' | 'QID' | 'HS') => {
+    if (freq === 'OD') { onUpdate(i, 'morning', '1'); onUpdate(i, 'afternoon', '0'); onUpdate(i, 'evening', '0'); onUpdate(i, 'night', '0') }
+    else if (freq === 'BD') { onUpdate(i, 'morning', '1'); onUpdate(i, 'afternoon', '0'); onUpdate(i, 'evening', '1'); onUpdate(i, 'night', '0') }
+    else if (freq === 'TDS') { onUpdate(i, 'morning', '1'); onUpdate(i, 'afternoon', '1'); onUpdate(i, 'evening', '1'); onUpdate(i, 'night', '0') }
+    else if (freq === 'QID') { onUpdate(i, 'morning', '1'); onUpdate(i, 'afternoon', '1'); onUpdate(i, 'evening', '1'); onUpdate(i, 'night', '1') }
+    else if (freq === 'HS') { onUpdate(i, 'morning', '0'); onUpdate(i, 'afternoon', '0'); onUpdate(i, 'evening', '0'); onUpdate(i, 'night', '1') }
+  }
+
   return (
-    <FormSection 
-      id="prescriptions" 
-      title={t('visit.prescriptions')} 
-      icon={Icons.pill} 
+    <FormSection
+      id="prescriptions"
+      title={t('visit.prescriptions')}
+      icon={Icons.pill}
       badge={prescriptions.length || undefined}
-      headerAction={onPrint && (
-        <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 text-xs font-bold rounded-lg transition-colors print:hidden">
-          {Icons.download} Print Rx
-        </button>
-      )}
+      headerAction={
+        <div className="flex items-center gap-2">
+          {onOpenMedIntelligence && (
+            <button
+              type="button"
+              onClick={onOpenMedIntelligence}
+              className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-lg transition-colors cursor-pointer"
+            >
+              <span>💊</span> Med Intelligence
+            </button>
+          )}
+          {onPrint && (
+            <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-md transition-colors print:hidden cursor-pointer">
+              {Icons.download} Print Rx
+            </button>
+          )}
+        </div>
+      }
     >
+      {/* Real-time Allergy Conflict Alert (Section 19) */}
+      {allergyConflicts.length > 0 && (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 flex items-start gap-2.5 animate-in fade-in duration-150">
+          <span className="text-rose-600 font-bold text-base shrink-0">🚨</span>
+          <div>
+            <p className="text-xs font-bold">CRITICAL ALLERGY CONFLICT WARNING</p>
+            <p className="text-[11px] text-rose-800 mt-0.5">
+              Prescribed medicine matches documented patient allergy: <span className="font-bold underline">{allergyConflicts.map(c => c.name).join(', ')}</span>. Confirm with patient before issuing.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Medication Warning */}
+      {duplicates.length > 0 && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 flex items-start gap-2.5">
+          <span className="text-amber-600 font-bold text-sm shrink-0">⚠️</span>
+          <div>
+            <p className="text-xs font-bold">Duplicate Medication Detected</p>
+            <p className="text-[11px] text-amber-800 mt-0.5">
+              "{duplicates.map(d => d.name).join(', ')}" is listed more than once in this prescription.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Drug search */}
-      <div ref={drugSearchRef} className="relative mb-4">
+      <div ref={drugSearchRef} className="relative z-30 mb-4">
         <input
           className={inputCls}
           value={drugSearch}
           onChange={e => onSearchChange(e.target.value)}
           onFocus={onSearchFocus}
+          onClick={onSearchFocus}
           placeholder={t('visit.drugSearchPlaceholder')}
         />
         {showDropdown && drugResults && drugResults.length > 0 && (
-          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-2xl max-h-60 overflow-y-auto">
             {drugResults.map(drug => (
               <button key={drug.id} type="button"
-                className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
+                className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors cursor-pointer"
                 onClick={() => onAddDrug(drug.strength ? `${drug.name} ${drug.strength}` : drug.name)}
               >
                 <div>
@@ -529,10 +797,10 @@ function PrescriptionsSection({
           </div>
         )}
         {showDropdown && drugSearch.length >= 1 && drugResults?.length === 0 && (
-          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm flex items-center justify-between">
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-2xl px-4 py-3 text-sm flex items-center justify-between">
             <span className="text-slate-400">No drugs found for "{drugSearch}"</span>
             <button type="button" onClick={() => onCreateDrug(drugSearch)}
-              className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold transition-colors">
+              className="btn btn-secondary px-3 py-1.5 text-xs">
               Create &amp; Add
             </button>
           </div>
@@ -544,7 +812,7 @@ function PrescriptionsSection({
         <table className="w-full text-xs">
           <thead className="bg-slate-50">
             <tr>
-              {['Medicine', 'Morning', 'Afternoon', 'Evening', 'Night', 'When', 'Notes', ''].map((h, i) => (
+              {['Medicine', 'Morning', 'Afternoon', 'Evening', 'Night', 'Quick Preset', 'When', 'Notes', ''].map((h, i) => (
                 <th key={i} className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -552,62 +820,83 @@ function PrescriptionsSection({
           <tbody className="divide-y divide-slate-50">
             {prescriptions.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-slate-400">
+                <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
                   {t('visit.prescriptionsHint')}
                 </td>
               </tr>
-            ) : prescriptions.map((p, i) => (
-              <tr key={i} className="hover:bg-slate-50/50 transition-colors group">
-                <td className="px-3 py-2.5 whitespace-nowrap">
-                  <div className="flex items-center gap-1.5">
+            ) : prescriptions.map((p, i) => {
+              const isConflict = allergyConflicts.some(c => c.name === p.name)
+              return (
+                <tr key={i} className={cn('transition-colors group', isConflict ? 'bg-rose-50/50' : 'hover:bg-slate-50/50')}>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        className={cn(
+                          'w-36 border rounded-md px-2 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 bg-white',
+                          isConflict ? 'border-rose-400 text-rose-950 ring-1 ring-rose-300' : 'border-border text-slate-800 focus:ring-primary-500'
+                        )}
+                        value={p.name}
+                        onChange={e => onUpdate(i, 'name', e.target.value)}
+                      />
+                      <button type="button" title="Save to catalog" onClick={() => onSaveToCatalog(p.name)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-emerald-700 transition-all rounded">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                      </button>
+                    </div>
+                  </td>
+                  {(['morning', 'afternoon', 'evening', 'night'] as const).map(field => (
+                    <td key={field} className="px-1.5 py-2.5">
+                      <input
+                        className="w-12 border border-border rounded-md px-1.5 py-1.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white font-mono"
+                        value={p[field]}
+                        onChange={e => onUpdate(i, field, e.target.value)}
+                        placeholder="0"
+                      />
+                    </td>
+                  ))}
+                  {/* Quick Frequency Presets (Section 18) */}
+                  <td className="px-1.5 py-2.5 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      {(['OD', 'BD', 'TDS', 'QID'] as const).map(freq => (
+                        <button
+                          key={freq}
+                          type="button"
+                          onClick={() => applyFrequency(i, freq)}
+                          className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-100 hover:bg-emerald-100 hover:text-emerald-800 text-slate-600 transition-colors cursor-pointer"
+                        >
+                          {freq}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-1.5 py-2.5">
+                    <select className="border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white"
+                      value={p.when} onChange={e => onUpdate(i, 'when', e.target.value)}>
+                      <option value="">—</option>
+                      <option value="Before food">{t('visit.whenBeforeFood')}</option>
+                      <option value="After food">{t('visit.whenAfterFood')}</option>
+                      <option value="With food">{t('visit.whenWithFood')}</option>
+                      <option value="At bedtime">{t('visit.whenAtBedtime')}</option>
+                      <option value="SOS">{t('visit.whenSos')}</option>
+                    </select>
+                  </td>
+                  <td className="px-1.5 py-2.5">
                     <input
-                      className="w-32 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                      value={p.name}
-                      onChange={e => onUpdate(i, 'name', e.target.value)}
-                    />
-                    <button type="button" title="Save to catalog" onClick={() => onSaveToCatalog(p.name)}
-                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-blue-600 transition-all rounded">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    </button>
-                  </div>
-                </td>
-                {(['morning', 'afternoon', 'evening', 'night'] as const).map(field => (
-                  <td key={field} className="px-1.5 py-2.5">
-                    <input
-                      className="w-14 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white font-mono"
-                      value={p[field]}
-                      onChange={e => onUpdate(i, field, e.target.value)}
-                      placeholder="0"
+                      className="w-32 border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white"
+                      value={p.details}
+                      onChange={e => onUpdate(i, 'details', e.target.value)}
+                      placeholder={t('visit.detailsPlaceholder')}
                     />
                   </td>
-                ))}
-                <td className="px-1.5 py-2.5">
-                  <select className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                    value={p.when} onChange={e => onUpdate(i, 'when', e.target.value)}>
-                    <option value="">—</option>
-                    <option value="Before food">{t('visit.whenBeforeFood')}</option>
-                    <option value="After food">{t('visit.whenAfterFood')}</option>
-                    <option value="With food">{t('visit.whenWithFood')}</option>
-                    <option value="At bedtime">{t('visit.whenAtBedtime')}</option>
-                    <option value="SOS">{t('visit.whenSos')}</option>
-                  </select>
-                </td>
-                <td className="px-1.5 py-2.5">
-                  <input
-                    className="w-36 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                    value={p.details}
-                    onChange={e => onUpdate(i, 'details', e.target.value)}
-                    placeholder={t('visit.detailsPlaceholder')}
-                  />
-                </td>
-                <td className="px-1.5 py-2.5">
-                  <button type="button" onClick={() => onRemove(i)}
-                    className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                    {Icons.x}
-                  </button>
-                </td>
-              </tr>
-            ))}
+                  <td className="px-1.5 py-2.5">
+                    <button type="button" onClick={() => onRemove(i)}
+                      className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                      {Icons.x}
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -618,7 +907,7 @@ function PrescriptionsSection({
 // ─── Section: Lab Orders ──────────────────────────────────────────────────────
 
 function LabSection({
-  selectedItems, selectedCombos, labSearch, showDropdown, labCatalog, comboCatalog, labSearchRef, lastLabReports,
+  selectedItems, selectedCombos, labSearch, showDropdown, labCatalog, comboCatalog, labSearchRef, lastLabReports, lisConnected,
   onSearchChange, onSearchFocus, onAdd, onRemove, onAddCombo, onRemoveCombo
 }: {
   selectedItems: LabItem[]
@@ -629,6 +918,7 @@ function LabSection({
   comboCatalog?: LabItem[]
   labSearchRef: React.RefObject<HTMLDivElement | null>
   lastLabReports?: Array<{ id: number; test_name: string; result_value: string | null; unit: string | null; reference_range: string | null; status: string; notes: string | null; ordered_date: string }>
+  lisConnected: boolean
   onSearchChange: (v: string) => void
   onSearchFocus: () => void
   onAdd: (item: LabItem) => void
@@ -640,6 +930,7 @@ function LabSection({
 
   return (
     <FormSection id="labs" title="Lab Orders" icon={Icons.flask} badge={selectedItems.length + selectedCombos.length || undefined}>
+      {lisConnected && <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">Showing tests and combos from the connected LIS. Orders will be placed directly in that laboratory system.</p>}
       {/* Previous lab reports collapsible */}
       {lastLabReports && lastLabReports.length > 0 && (
         <div className="mb-4 border border-emerald-200 bg-emerald-50/40 rounded-xl overflow-hidden">
@@ -678,22 +969,23 @@ function LabSection({
       )}
 
       {/* Lab search */}
-      <div ref={labSearchRef} className="relative mb-4">
+      <div ref={labSearchRef} className="relative z-30 mb-4">
         <input
           className={inputCls}
           value={labSearch}
           onChange={e => onSearchChange(e.target.value)}
           onFocus={onSearchFocus}
+          onClick={onSearchFocus}
           placeholder="Search lab tests or combos to order…"
         />
         {showDropdown && ((labCatalog && labCatalog.length > 0) || (comboCatalog && comboCatalog.length > 0)) && (
-          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl max-h-52 overflow-y-auto">
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-2xl max-h-60 overflow-y-auto">
             {comboCatalog && comboCatalog.length > 0 && (
               <>
                 <div className="px-4 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider sticky top-0">Combo Panels</div>
                 {comboCatalog.map((item: LabItem) => (
                   <button key={`combo-${item.id}`} type="button"
-                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors cursor-pointer"
                     onClick={() => onAddCombo(item)}
                   >
                     <span className="font-medium text-slate-800">{item.name}</span>
@@ -707,7 +999,7 @@ function LabSection({
                 <div className="px-4 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider sticky top-0">Individual Tests</div>
                 {labCatalog.map((item: LabItem) => (
                   <button key={`lab-${item.id}`} type="button"
-                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors"
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex items-center justify-between gap-4 border-b border-slate-50 last:border-0 transition-colors cursor-pointer"
                     onClick={() => onAdd(item)}
                   >
                     <span className="font-medium text-slate-800">{item.name}</span>
@@ -719,7 +1011,7 @@ function LabSection({
           </div>
         )}
         {showDropdown && labSearch.length >= 1 && labCatalog?.length === 0 && comboCatalog?.length === 0 && (
-          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl px-4 py-3 text-sm text-slate-400">
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-2xl px-4 py-3 text-sm text-slate-400">
             No tests found for "{labSearch}"
           </div>
         )}
@@ -740,10 +1032,10 @@ function LabSection({
           ))}
           {selectedItems.map(item => (
             <div key={`lab-${item.id}`}
-              className="flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-sm font-semibold">
+              className="flex items-center gap-2 bg-primary-50 text-primary-700 border border-primary-200 px-3 py-1.5 rounded-md text-sm font-semibold">
               {item.name}
-              {item.price > 0 && <span className="text-xs text-blue-500 font-normal">₹{item.price.toFixed(0)}</span>}
-              <button type="button" onClick={() => onRemove(item.id)} className="text-blue-400 hover:text-blue-600 transition-colors">
+              {item.price > 0 && <span className="text-xs text-primary-500 font-normal">₹{item.price.toFixed(0)}</span>}
+              <button type="button" onClick={() => onRemove(item.id)} className="text-primary-400 hover:text-primary-600 transition-colors">
                 {Icons.x}
               </button>
             </div>
@@ -760,7 +1052,7 @@ function LabSection({
 
 export default function NewVisitPage() {
   const { t } = useTranslation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -770,11 +1062,19 @@ export default function NewVisitPage() {
   const { data: me } = useMe()
   const { data: clinic } = useClinic()
   const doctorIdFromUrl = searchParams.get('doctor_id') ? Number(searchParams.get('doctor_id')) : null
-  const doctorId = doctorIdFromUrl ?? me?.id ?? 0
-  
+  const [assignedDoctorId, setAssignedDoctorId] = useState<number | null>(null)
+  const doctorId = assignedDoctorId ?? doctorIdFromUrl ?? me?.id ?? 0
+
   const canManageClinical = me?.role?.name === 'Admin' || me?.role?.permissions?.some(p => p.name === 'manage_clinical') || false
 
   const [printType, setPrintType] = useState<'prescription' | 'report' | null>(null)
+  const [isPGOpen, setIsPGOpen] = useState(false)
+  const [pgPrompt, setPgPrompt] = useState<string | undefined>()
+  const [isPrepareOpen, setIsPrepareOpen] = useState(false)
+  const [isChangesOpen, setIsChangesOpen] = useState(false)
+  const [isLoopsOpen, setIsLoopsOpen] = useState(false)
+  const [isMedIntelOpen, setIsMedIntelOpen] = useState(false)
+  const [isSmartPlanOpen, setIsSmartPlanOpen] = useState(false)
 
   const handlePrint = (type: 'prescription' | 'report') => {
     setPrintType(type)
@@ -784,6 +1084,11 @@ export default function NewVisitPage() {
   }
 
   const { data: patient } = usePatient(patientId)
+  const allergyRecords = useQuery({
+    queryKey: ['clinicalHistory', patientId, 'allergies'],
+    queryFn: () => getAllergies(patientId),
+    enabled: !!patientId,
+  })
   const { data: vitalConfigs } = useVitalConfigs()
   const { data: statuses } = useAppointmentStatuses()
   const { data: lastLabReports } = useLatestLabResults(patientId)
@@ -793,7 +1098,6 @@ export default function NewVisitPage() {
 
   const { data: patientAppointments, isLoading: appointmentsLoading } = useAppointments({ patient_id: patientId })
   const createAppointment = useCreateAppointment()
-  const updateAppointmentStatus = useUpdateAppointmentStatus()
 
   // ── Form state ──
   const [editingEncounterId, setEditingEncounterId] = useState<number | null>(() => {
@@ -801,27 +1105,36 @@ export default function NewVisitPage() {
     if (encId) return parseInt(encId, 10)
     return null
   })
+  const [editingVersion, setEditingVersion] = useState<number | null>(null)
 
   const [status, setStatus] = useState('Open')
+  const isNoShowOrCancelled = status === 'No Show' || status === 'Cancelled'
+  const [isStarting, setIsStarting] = useState(false)
 
-  useEffect(() => {
-    if (appointmentId && patientAppointments) {
-      const app = patientAppointments.find(a => a.id === appointmentId)
-      if (app) {
-        if (app.status !== 'Ongoing' && app.status !== 'Completed' && app.status !== 'Cancelled' && app.status !== 'No Show') {
-          updateAppointmentStatus.mutate({ id: appointmentId, status: 'Ongoing' })
-          setStatus('Ongoing')
-        } else if (!editingEncounterId && app.status === 'Ongoing') {
-          setStatus('Ongoing')
-        }
-      }
+  const selectedAppointment = patientAppointments?.find(a => a.id === appointmentId)
+  const canStartConsultation = !!selectedAppointment && !editingEncounterId &&
+    !['Ongoing', 'Completed', 'Cancelled', 'No Show'].includes(selectedAppointment.status)
+  const startConsultation = async () => {
+    if (!appointmentId || isStarting) return
+    setIsStarting(true)
+    try {
+      await startAppointment(appointmentId)
+      await queryClient.invalidateQueries({ queryKey: ['appointments'] })
+      setStatus('Ongoing')
+      setSaveError('')
+    } catch (e) {
+      setSaveError(isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : 'Could not start consultation')
+    } finally {
+      setIsStarting(false)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appointmentId, patientAppointments, editingEncounterId])
+  }
   const [reason, setReason] = useState('')
   const [notes, setNotes] = useState('')
   const [quickNotes, setQuickNotes] = useState('')
   const [advice, setAdvice] = useState('')
+  const [followupDays, setFollowupDays] = useState<number | ''>('')
+  const [followupMonths, setFollowupMonths] = useState<number | ''>('')
+  const [followupDate, setFollowupDate] = useState('')
   const [vitals, setVitals] = useState<Record<number, string>>({})
   const [complaints, setComplaints] = useState<ComplaintRow[]>([])
   const [diagnoses, setDiagnoses] = useState<DiagnosisRow[]>([])
@@ -830,7 +1143,24 @@ export default function NewVisitPage() {
   const [selectedCombos, setSelectedCombos] = useState<LabItem[]>([])
   const [prescriptions, setPrescriptions] = useState<PrescriptionInput[]>([])
   const [saveError, setSaveError] = useState('')
+  const [lisOrderError, setLisOrderError] = useState<string | null>(null)
+  const [isRetryingLisOrder, setIsRetryingLisOrder] = useState(false)
   const [showSaveModal, setShowSaveModal] = useState(false)
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [isSigned, setIsSigned] = useState(false)
+  const draftSnapshot = JSON.stringify({ reason, notes, quickNotes, advice, followupDays, followupMonths, followupDate, vitals, complaints, diagnoses, treatments, prescriptions, selectedLabs, selectedCombos })
+  const hasDocumentation = !!(reason || notes || quickNotes || advice || complaints.length || diagnoses.length || treatments.length || prescriptions.length || selectedLabs.length || selectedCombos.length || Object.keys(vitals).length)
+  const hasUnsavedChanges = !isSigned && (savedSnapshot === null ? hasDocumentation : savedSnapshot !== draftSnapshot)
+  useEffect(() => {
+    if (editingVersion !== null && savedSnapshot === null) setSavedSnapshot(draftSnapshot)
+  }, [editingVersion, savedSnapshot, draftSnapshot])
+  useEffect(() => {
+    if (!hasUnsavedChanges) return
+    const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', guard)
+    return () => window.removeEventListener('beforeunload', guard)
+  }, [hasUnsavedChanges])
 
   // ── Carry-forward ──
   const [carryStatus, setCarryStatus] = useState<CarryStatus>(null)
@@ -838,20 +1168,35 @@ export default function NewVisitPage() {
     const encId = typeof specificEncounterId === 'number' ? specificEncounterId : undefined;
     setCarryStatus('loading')
     try {
-      const data = encId 
-        ? await queryClient.fetchQuery({ queryKey: ['visit', encId], queryFn: () => getVisitById(encId) }) 
+      const data = encId
+        ? await queryClient.fetchQuery({ queryKey: ['visit', encId], queryFn: () => getVisitById(encId) })
         : await queryClient.fetchQuery({ queryKey: ['lastVisit', patientId], queryFn: () => getLastVisit(patientId) })
       const enc = data.encounter
-      if (encId) setStatus(enc.status || 'Open')
+      if (encId && enc.status === 'Completed') {
+        navigate(`/patients/${patientId}`, { replace: true })
+        return
+      }
+      if (encId) {
+        setAssignedDoctorId(enc.doctor_id)
+        setStatus(enc.status || 'Open')
+        setEditingVersion(enc.version)
+      }
       setReason(enc.reason || '')
       setNotes(enc.notes || '')
       setQuickNotes(enc.quick_notes || '')
       setAdvice(enc.advice || '')
+      setFollowupDays(enc.followup_days || '')
+      setFollowupDate(enc.followup_date || '')
+      setFollowupMonths('')
       setVitals(data.vitals.reduce<Record<number, string>>((acc, v) => ({ ...acc, [v.vital_config_id]: v.value || '' }), {}))
       setComplaints(data.complaints.map(c => ({ complaint: c.complaint, from_date: c.from_date || '', duration: c.duration || '' })))
       setDiagnoses(data.diagnoses.map(d => ({ diagnosis: d.diagnosis, date: d.date || '' })))
       setTreatments(data.treatments.map(tr => ({ treatment: tr.treatment, due_date: tr.due_date || '' })))
       setPrescriptions(data.prescriptions?.flatMap(p => p.items as PrescriptionInput[]) || [])
+      if (encId && enc.draft_orders) {
+        setSelectedLabs(enc.draft_orders.labs || [])
+        setSelectedCombos(enc.draft_orders.packages || [])
+      }
       setCarryStatus('loaded')
     } catch (e) {
       setCarryStatus(isAxiosError(e) && e.response?.status === 404 ? 'none' : 'error')
@@ -911,6 +1256,7 @@ export default function NewVisitPage() {
   const { data: labCatalog } = useLabCatalog(labSearch)
   const { data: comboCatalog } = useComboCatalog(labSearch)
   const orderCombo = useOrderCombo()
+  const lisStatus = useLISStatus()
 
   // close dropdowns on outside click
   useEffect(() => {
@@ -970,7 +1316,7 @@ export default function NewVisitPage() {
 
   // ── Scrollspy: track active section ──
   const [activeSection, setActiveSection] = useState<SectionKey>('overview')
-  const sectionKeys: SectionKey[] = ['overview', 'vitals', 'complaints', 'diagnoses', 'treatments', 'prescriptions', 'labs']
+  const sectionKeys: SectionKey[] = ['overview', 'vitals', 'complaints', 'diagnoses', 'treatments', 'prescriptions', 'labs', 'followup', 'assistant']
 
   const handleScroll = useCallback(() => {
     for (const key of [...sectionKeys].reverse()) {
@@ -988,9 +1334,22 @@ export default function NewVisitPage() {
   }, [handleScroll])
 
   // ── Submit ──
-  const performSave = async (finalStatus: string) => {
+  const performSave = async (finalStatus: string, keepOpen = false) => {
+    if (canStartConsultation && finalStatus !== 'No Show' && finalStatus !== 'Cancelled') {
+      setSaveError('Start the consultation before saving.');
+      return
+    }
+    if (finalStatus === 'Completed' && !reason.trim() && !notes.trim() && !complaints.some(item => item.complaint.trim())) {
+      setSaveError('Document a reason, complaint or clinical note before completing the visit.'); return
+    }
+    const submittedSnapshot = draftSnapshot
     setShowSaveModal(false)
     setSaveError('')
+    const isLisConfigured = !!lisStatus.data?.configured
+    const isLisConnected = !!lisStatus.data?.connected
+    const lisCodes = [...new Set([...selectedLabs.map(item => item.lis_code).filter((code): code is string => !!code), ...selectedCombos.flatMap(combo => combo.lis_test_codes || [])])]
+    const packageCodes = [...new Set(selectedCombos.map(item => item.lis_code).filter((code): code is string => !!code))]
+
     const payload: VisitPayload = {
       patient_id: patientId,
       doctor_id: doctorId,
@@ -1000,27 +1359,94 @@ export default function NewVisitPage() {
       notes: notes || null,
       quick_notes: quickNotes || null,
       advice: advice || null,
+      followup_days: followupDays ? Number(followupDays) : undefined,
+      followup_months: followupMonths ? Number(followupMonths) : undefined,
+      followup_date: followupDate || undefined,
       vitals: Object.entries(vitals).filter(([, v]) => v !== '').map(([id, value]) => ({ vital_config_id: Number(id), value })),
       complaints: complaints.filter(c => c.complaint.trim()),
       diagnoses: diagnoses.filter(d => d.diagnosis.trim()),
       treatments: treatments.filter(tr => tr.treatment.trim()),
-      lab_test_catalogs: selectedLabs.map(l => l.id),
+      lab_test_catalogs: isLisConfigured ? [] : selectedLabs.map(l => l.id),
+      lis_order: isLisConfigured && (lisCodes.length > 0 || packageCodes.length > 0) ? {
+        test_codes: lisCodes,
+        package_codes: packageCodes,
+        notes: reason || diagnoses.map(item => item.diagnosis).join(', '),
+      } : undefined,
       prescriptions: prescriptions.filter(p => p.name.trim()),
+      draft_orders: { labs: selectedLabs, packages: selectedCombos },
+    }
+    if (keepOpen) {
+      delete (payload as Partial<VisitPayload>).lab_test_catalogs
+      delete payload.lis_order
+    }
+    if (editingEncounterId) {
+      if (editingVersion === null) {
+        setSaveError('Wait for the current visit to load before saving.')
+        return
+      }
+      payload.expected_version = editingVersion
     }
     try {
+      let savedVisit: Encounter | undefined
       if (editingEncounterId) {
-        await updateVisit.mutateAsync({ id: editingEncounterId, data: payload })
+        savedVisit = (await updateVisit.mutateAsync({ id: editingEncounterId, data: payload })).encounter
       } else {
-        await createVisit.mutateAsync(payload)
+        savedVisit = (await createVisit.mutateAsync(payload)).encounter
+        setEditingEncounterId(savedVisit.id)
+      }
+      setEditingVersion(savedVisit.version)
+      setStatus(finalStatus)
+      setSavedSnapshot(submittedSnapshot)
+      setSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+      setIsSigned(finalStatus === 'Completed')
+      if (keepOpen) {
+        const nextParams = new URLSearchParams(searchParams)
+        nextParams.set('encounter_id', String(savedVisit.id)); nextParams.set('edit', 'true')
+        setSearchParams(nextParams, { replace: true })
+        return
       }
 
-      if (selectedCombos.length > 0) {
+      if (isLisConfigured) {
+        if (lisCodes.length > 0 || packageCodes.length > 0) {
+          const sourceId = savedVisit?.id ?? editingEncounterId
+          if (!sourceId) throw new Error('The visit was saved, but could not identify it for LIS order submission. Please contact support before retrying.')
+          if (!isLisConnected) {
+            setLisOrderError(`Visit #${sourceId} saved. The laboratory request is queued and will retry automatically when the LIS is available.`)
+            return
+          }
+          try {
+            const result = await submitVisitLabOrder(sourceId)
+            if (result.status !== 'ACCEPTED') {
+              setLisOrderError(`Visit #${sourceId} saved. The laboratory request is ${result.status.toLowerCase()} and will retry automatically. ${result.last_error || ''}`)
+              return
+            }
+          } catch (lisErr) {
+            setLisOrderError(`Visit #${sourceId} saved with a queued laboratory request. ${isAxiosError(lisErr) ? ((lisErr.response?.data as { detail?: string })?.detail || lisErr.message) : 'Submission will retry automatically.'}`)
+            return
+          }
+        }
+      } else if (selectedCombos.length > 0) {
         await Promise.all(selectedCombos.map(combo => orderCombo.mutateAsync({ patient_id: patientId, combo_id: combo.id })))
       }
 
-      navigate(`/patients/${patientId}`)
+      navigate(`/patients/${patientId}?tab=visits`)
     } catch (e) {
       setSaveError(isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || t('visit.failedSave')) : t('visit.failedSave'))
+    }
+  }
+
+  const handleRetryLisOrder = async () => {
+    if (!editingEncounterId) return
+    setIsRetryingLisOrder(true)
+    setLisOrderError(null)
+    try {
+      const result = await submitVisitLabOrder(editingEncounterId)
+      if (result.status === 'ACCEPTED') navigate(`/patients/${patientId}`)
+      else setLisOrderError(`The laboratory request is ${result.status.toLowerCase()} and will retry automatically. ${result.last_error || ''}`)
+    } catch (e) {
+      setLisOrderError(`LIS lab order retry failed: ${isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : 'Unknown error'}`)
+    } finally {
+      setIsRetryingLisOrder(false)
     }
   }
 
@@ -1028,6 +1454,10 @@ export default function NewVisitPage() {
     e.preventDefault()
     if (!appointmentId && !searchParams.get('edit')) {
       setSaveError('An appointment must be selected for this visit.')
+      return
+    }
+    if (canStartConsultation && status !== 'Cancelled' && status !== 'No Show') {
+      setSaveError('Start the consultation before saving this visit.')
       return
     }
     if (status !== 'Cancelled' && status !== 'No Show') {
@@ -1041,10 +1471,10 @@ export default function NewVisitPage() {
   const isEditing = searchParams.get('edit') === 'true'
   if (!appointmentId && !isEditing && !appointmentsLoading) {
     const pendingAppointments = patientAppointments?.filter(a => !['Completed', 'Cancelled', 'No Show'].includes(a.status)) || []
-    
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+        <div className="card shadow-modal w-full max-w-md overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
             <h2 className="text-lg font-bold text-slate-800">Select Appointment</h2>
             <p className="text-xs text-slate-500 mt-1">Please select an existing appointment or create a walk-in appointment to start this visit.</p>
@@ -1057,19 +1487,21 @@ export default function NewVisitPage() {
                   <button
                     key={app.id}
                     onClick={() => {
-                      const params = new URLSearchParams(searchParams)
-                      params.set('appointment_id', String(app.id))
-                      navigate(`?${params.toString()}`, { replace: true })
+                      if (app.encounter_id && app.encounter_status !== 'Completed') {
+                        setEditingEncounterId(app.encounter_id)
+                        handleCarryForward(app.encounter_id)
+                      }
+                      navigate(consultationPath(app), { replace: true })
                     }}
-                    className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all flex items-center justify-between group"
+                    className="w-full text-left p-3 rounded-md border border-border hover:border-primary-300 hover:bg-primary-50 transition-all flex items-center justify-between group"
                   >
                     <div>
-                      <p className="text-sm font-semibold text-slate-800 group-hover:text-blue-700">
+                      <p className="text-sm font-semibold text-slate-800 group-hover:text-primary-700">
                         {new Date(app.appointment_time).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })}
                       </p>
                       <p className="text-xs text-slate-500 mt-0.5">Status: {app.status}</p>
                     </div>
-                    <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-blue-100 flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition-colors">
+                    <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-primary-100 flex items-center justify-center text-slate-400 group-hover:text-primary-600 transition-colors">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><polyline points="9 18 15 12 9 6"/></svg>
                     </div>
                   </button>
@@ -1084,7 +1516,7 @@ export default function NewVisitPage() {
                 <p className="text-xs text-slate-400 mt-1">Create a new walk-in appointment to proceed.</p>
               </div>
             )}
-            
+
             <button
               type="button"
               disabled={createAppointment.isPending}
@@ -1103,7 +1535,7 @@ export default function NewVisitPage() {
                   }
                 })
               }}
-              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-sm shadow-blue-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+              className="btn btn-primary w-full py-2.5 px-4 flex items-center justify-center gap-2"
             >
               {createAppointment.isPending ? (
                 <>
@@ -1119,7 +1551,7 @@ export default function NewVisitPage() {
             </button>
             <button
               onClick={() => navigate(-1)}
-              className="w-full mt-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-colors"
+              className="btn btn-secondary w-full mt-3 py-2 text-xs"
             >
               Cancel & Go Back
             </button>
@@ -1134,12 +1566,13 @@ export default function NewVisitPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center h-full text-slate-400">
         <p className="text-sm">{t('visit.missingInfo')}</p>
-        <button onClick={() => navigate('/patients')} className="mt-3 text-blue-600 text-sm font-medium">{t('visit.goBack')}</button>
+        <button onClick={() => navigate('/patients')} className="mt-3 text-primary-600 text-sm font-medium">{t('visit.goBack')}</button>
       </div>
     )
   }
 
   const patientName = patient ? `${patient.first_name} ${patient.last_name}` : '…'
+  const activeAllergies = allergyRecords.data?.filter(item => item.status === 'Active') ?? []
   const isPending = createVisit.isPending || updateVisit.isPending
 
   // sidebar counts
@@ -1157,6 +1590,9 @@ export default function NewVisitPage() {
       encounter_date: new Date().toISOString(),
       quick_notes: quickNotes,
       advice: advice,
+      followup_days: followupDays,
+      followup_months: followupMonths,
+      followup_date: followupDate,
     },
     vitals: Object.entries(vitals).filter(([_, val]) => val).map(([k, v]) => {
       const cfg = vitalConfigs?.find(c => c.id.toString() === k)
@@ -1169,7 +1605,7 @@ export default function NewVisitPage() {
   } as unknown as VisitResponse) : null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="consultation-workspace flex h-full overflow-hidden bg-slate-50">
       {/* Mini Sidebar */}
       <VisitSidebar
         active={activeSection}
@@ -1181,202 +1617,418 @@ export default function NewVisitPage() {
         onCancel={() => navigate(`/patients/${patientId}`)}
         patientName={patientName}
         onBackToPatient={() => navigate(`/patients/${patientId}`)}
+        status={status}
       />
 
-      {/* Main content */}
-      <div id="visit-content-scroll" className="flex-1 overflow-y-auto">
-        {/* Sticky breadcrumb bar */}
-        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-slate-200 px-6 py-2.5 flex items-center justify-between gap-2">
-          {/* Breadcrumb */}
-          <nav className="flex items-center gap-1.5 min-w-0">
-            <button
-              onClick={() => navigate('/patients')}
-              className="text-sm text-slate-400 hover:text-slate-700 font-medium transition-colors shrink-0"
-            >
-              {t('patients.title')}
-            </button>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-slate-300 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-            <button
-              onClick={() => navigate(`/patients/${patientId}`)}
-              className="text-sm text-slate-500 hover:text-slate-800 font-medium transition-colors truncate max-w-[160px]"
-            >
-              {patientName}
-            </button>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-slate-300 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-            <span className="text-sm font-semibold text-slate-800 shrink-0">
-              {editingEncounterId ? 'Edit Visit' : 'New Visit'}
-            </span>
-          </nav>
-        </div>
-
-        {/* Prominent Patient Details Banner */}
-        {patient && (
-          <div className="mx-6 mt-6 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 max-w-3xl">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-lg font-bold shrink-0">
-                {patient.first_name?.[0]}{patient.last_name?.[0]}
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-800">{patientName}</h2>
-                <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-2 items-center">
-                  {patient.opd_number && <span className="font-mono text-slate-600 font-medium">{patient.opd_number}</span>}
-                  {patient.opd_number && <span>·</span>}
-                  <span>{patient.gender}</span>
-                  <span>·</span>
-                  <span>{patient.dob ? `${new Date().getFullYear() - new Date(patient.dob).getFullYear()} yrs` : ''}</span>
-                  {patient.blood_group && (
-                    <>
-                      <span>·</span>
-                      <span className="text-red-500 font-bold">{patient.blood_group}</span>
-                    </>
-                  )}
-                  {patient.contact_number && (
-                    <>
-                      <span>·</span>
-                      <span>{patient.contact_number}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {patient.language ? (
-              <div className="flex items-center gap-2.5 bg-indigo-50 border border-indigo-100 px-4 py-2.5 rounded-xl shrink-0">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-indigo-500">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                </svg>
-                <div>
-                  <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Language</p>
-                  <p className="text-sm font-bold text-indigo-700">{patient.language}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-100 px-4 py-2.5 rounded-xl shrink-0">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-amber-500">
-                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-                <div>
-                  <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Language</p>
-                  <p className="text-sm font-bold text-amber-700">Not Specified</p>
-                </div>
+      {/* Main content and docked footer container */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+        {/* Main scrollable content */}
+        <div id="visit-content-scroll" className="flex-1 min-w-0 overflow-y-auto">
+          {/* Sticky breadcrumb bar */}
+          <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+            {/* Breadcrumb */}
+            <nav className="hidden sm:flex items-center gap-1.5 min-w-0">
+              <button
+                onClick={() => navigate('/patients')}
+                className="text-sm text-slate-400 hover:text-slate-700 font-medium transition-colors shrink-0"
+              >
+                {t('patients.title')}
+              </button>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-slate-300 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+              <button
+                onClick={() => navigate(`/patients/${patientId}`)}
+                className="text-sm text-slate-500 hover:text-slate-800 font-medium transition-colors truncate max-w-[160px]"
+              >
+                {patientName}
+              </button>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-slate-300 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+              <span className="text-sm font-semibold text-slate-800 shrink-0">
+                {editingEncounterId ? 'Edit Visit' : 'New Visit'}
+              </span>
+            </nav>
+            {canStartConsultation && !isNoShowOrCancelled && (
+              <button type="button" onClick={startConsultation} disabled={isStarting || !canManageClinical}
+                className="btn btn-primary px-4 py-2 text-sm shrink-0 disabled:opacity-50">
+                {isStarting ? 'Starting…' : 'Start consultation'}
+              </button>
+            )}
+            {(!canStartConsultation || isNoShowOrCancelled) && (
+              <div className="ml-auto flex items-center gap-2 flex-wrap">
+                {isNoShowOrCancelled ? (
+                  <>
+                    <span role="status" className="text-xs text-rose-600 font-semibold">
+                      Marked as {status}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isPending || !canManageClinical}
+                      onClick={() => performSave(status)}
+                      className="btn btn-primary cursor-pointer"
+                    >
+                      {isPending ? 'Saving…' : `Save as ${status}`}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span role="status" className="text-xs text-slate-500 hidden md:block">{isSigned ? 'Signed' : hasUnsavedChanges ? 'Unsaved changes' : savedAt ? `Draft saved at ${savedAt}` : editingEncounterId ? 'Draft loaded' : 'New consultation'}</span>
+                    <button type="button" disabled={isPending || isSigned || !canManageClinical} onClick={() => performSave('Ongoing', true)} className="btn btn-secondary">{isPending ? 'Saving…' : 'Save draft'}</button>
+                    <button type="submit" form="visit-form" disabled={isPending || isSigned || !canManageClinical} className="btn btn-primary">Review & complete</button>
+                  </>
+                )}
               </div>
             )}
           </div>
-        )}
 
-        {/* Form sections */}
-        <form id="visit-form" onSubmit={handleSave} className="px-6 py-6 space-y-4 max-w-3xl">
+          {/* Prominent Patient Details Banner */}
+          {patient && (
+            <div className="mx-4 sm:mx-6 mt-6 p-5 bg-gradient-to-r from-white via-emerald-50/30 to-teal-50/20 border border-slate-200/90 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 max-w-6xl shadow-xs">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-gradient-to-br from-emerald-600 to-teal-700 text-white rounded-2xl flex items-center justify-center text-lg font-bold shrink-0 shadow-sm shadow-emerald-700/20">
+                  {patient.first_name?.[0]}{patient.last_name?.[0]}
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">{patientName}</h2>
+                  <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-2 items-center">
+                    {patient.opd_number && <span className="font-mono text-slate-600 font-medium">{patient.opd_number}</span>}
+                    {patient.opd_number && <span>·</span>}
+                    <span>{patient.gender}</span>
+                    <span>·</span>
+                    <span>{patient.dob ? `${new Date().getFullYear() - new Date(patient.dob).getFullYear()} yrs` : ''}</span>
+                    {patient.blood_group && (
+                      <>
+                        <span>·</span>
+                        <span className="text-red-500 font-bold">{patient.blood_group}</span>
+                      </>
+                    )}
+                    {patient.contact_number && (
+                      <>
+                        <span>·</span>
+                        <span>{patient.contact_number}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {patient.language ? (
+                <div className="flex items-center gap-2.5 bg-indigo-50 border border-indigo-100 px-4 py-2.5 rounded-xl shrink-0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-indigo-500">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <div>
+                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Language</p>
+                    <p className="text-sm font-bold text-indigo-700">{patient.language}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-100 px-4 py-2.5 rounded-xl shrink-0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-amber-500">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <div>
+                    <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">Language</p>
+                    <p className="text-sm font-bold text-amber-700">Not Specified</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {!isNoShowOrCancelled && (
+            <div role="status" className="mx-4 sm:mx-6 mt-3 max-w-6xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {allergyRecords.isLoading ? 'Checking allergy records…'
+                : allergyRecords.isError ? 'Allergy records unavailable. Confirm directly before prescribing.'
+                : activeAllergies.length ? `Active allergies: ${activeAllergies.map(item => item.allergen).join(', ')}. Review before prescribing.`
+                : 'Allergy status has not been explicitly reviewed. Confirm before prescribing.'}
+            </div>
+          )}
+
+          {/* Form sections */}
+          <div className="flex items-start gap-6 px-4 sm:px-6 max-w-6xl">
+          <form id="visit-form" onSubmit={handleSave} className="py-6 space-y-6 flex-1 min-w-0">
+          {!isNoShowOrCancelled && (
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <h2 className="font-semibold text-slate-900 text-balance">Consultation progress</h2>
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">{[
+                ['History', !!(reason.trim() || notes.trim() || complaints.some(item => item.complaint.trim()))],
+                ['Assessment', diagnoses.some(item => item.diagnosis.trim())],
+                ['Plan', !!(advice.trim() || treatments.length || prescriptions.length || selectedLabs.length || selectedCombos.length)],
+                ['Follow-up', !!(followupDays || followupMonths || followupDate)],
+              ].map(([label, present]) => <div key={String(label)} className="rounded-lg bg-slate-50 px-3 py-2"><p className="font-medium text-slate-700">{label}</p><p className={present ? 'mt-1 text-primary-700' : 'mt-1 text-slate-500'}>{present ? 'Documented' : 'Not documented'}</p></div>)}</div>
+              <p className="mt-3 text-xs text-slate-500">Document what was assessed. Save a draft to continue later; completion signs the record.</p>
+            </div>
+          )}
+
           <OverviewSection
             status={status} reason={reason} notes={notes} quickNotes={quickNotes} advice={advice}
             statuses={statuses}
-            onStatus={setStatus} onReason={setReason} onNotes={setNotes}
+            onStatus={v => { setStatus(v); setSaveError('') }} onReason={setReason} onNotes={setNotes}
             onQuickNotes={setQuickNotes} onAdvice={setAdvice}
             onPrint={() => handlePrint('report')}
+            onQuickSave={() => performSave(status)}
           />
 
-          {vitalConfigs && vitalConfigs.length > 0 && (
-            <VitalsSection
-              vitalConfigs={vitalConfigs}
-              vitals={vitals}
-              onChange={(id, val) => setVitals(v => ({ ...v, [id]: val }))}
-            />
+          {!isNoShowOrCancelled && (
+            <>
+              {vitalConfigs && vitalConfigs.length > 0 && (
+                <VitalsSection
+                  vitalConfigs={vitalConfigs}
+                  vitals={vitals}
+                  onChange={(id, val) => setVitals(v => ({ ...v, [id]: val }))}
+                />
+              )}
+
+              <ComplaintsSection
+                complaints={complaints}
+                onAdd={addComplaint}
+                onRemove={removeComplaint}
+                onUpdate={updateComplaint}
+              />
+
+              <DiagnosesSection
+                diagnoses={diagnoses}
+                onAdd={addDiagnosis}
+                onRemove={removeDiagnosis}
+                onUpdate={updateDiagnosis}
+                readOnly={!canManageClinical}
+              />
+
+              <TreatmentsSection
+                treatments={treatments}
+                onAdd={addTreatment}
+                onRemove={removeTreatment}
+                onUpdate={updateTreatment}
+                readOnly={!canManageClinical}
+                onOpenSmartPlan={() => setIsSmartPlanOpen(true)}
+              />
+
+              <PrescriptionsSection
+                prescriptions={prescriptions}
+                drugSearch={drugSearch}
+                showDropdown={showDrugDropdown}
+                drugResults={drugResults}
+                drugSearchRef={drugSearchRef}
+                activeAllergies={activeAllergies}
+                onSearchChange={v => { setDrugSearch(v); setShowDrugDropdown(true) }}
+                onSearchFocus={() => drugSearch.length >= 1 && setShowDrugDropdown(true)}
+                onAddDrug={addDrug}
+                onCreateDrug={handleCreateDrug}
+                onRemove={removePrescription}
+                onUpdate={updatePrescription}
+                onSaveToCatalog={handleSaveToCatalog}
+                onPrint={() => handlePrint('prescription')}
+                onOpenMedIntelligence={() => setIsMedIntelOpen(true)}
+              />
+
+              <LabSection
+                selectedItems={selectedLabs}
+                selectedCombos={selectedCombos}
+                labSearch={labSearch}
+                showDropdown={showLabDropdown}
+                labCatalog={labCatalog as LabItem[] | undefined}
+                comboCatalog={comboCatalog as LabItem[] | undefined}
+                labSearchRef={labSearchRef}
+                lisConnected={!!lisStatus.data?.connected}
+                lastLabReports={lastLabReports}
+                onSearchChange={v => { setLabSearch(v); setShowLabDropdown(true) }}
+                onSearchFocus={() => setShowLabDropdown(true)}
+                onAdd={addLabItem}
+                onRemove={removeLabItem}
+                onAddCombo={(item) => {
+                  if (!selectedCombos.find(c => c.id === item.id)) setSelectedCombos(c => [...c, item])
+                  setLabSearch('')
+                  setShowLabDropdown(false)
+                }}
+                onRemoveCombo={(id) => setSelectedCombos(c => c.filter(x => x.id !== id))}
+              />
+
+              <FollowupSection
+                followupDays={followupDays} followupMonths={followupMonths} followupDate={followupDate}
+                onFollowupDays={v => { setFollowupDays(v ? Number(v) : ''); setFollowupMonths(''); setFollowupDate('') }}
+                onFollowupMonths={v => { setFollowupMonths(v ? Number(v) : ''); setFollowupDays(''); setFollowupDate('') }}
+                onFollowupDate={v => { setFollowupDate(v); setFollowupDays(''); setFollowupMonths('') }}
+              />
+
+              <ClinicalAiAssistant disabled={!canManageClinical || isSigned} data={{
+                reason, notes, advice,
+                complaints: complaints.filter(item => item.complaint.trim()).map(item => [item.complaint, item.duration].filter(Boolean).join(' · ')),
+                vitals: (vitalConfigs || []).filter(item => vitals[item.id]).map(item => `${item.name}: ${vitals[item.id]}`),
+                diagnoses: diagnoses.filter(item => item.diagnosis.trim()).map(item => item.diagnosis),
+                treatments: treatments.filter(item => item.treatment.trim()).map(item => item.treatment),
+                prescriptions: prescriptions.filter(item => item.name.trim()).map(item => [item.name, item.morning && `Morning: ${item.morning}`, item.afternoon && `Afternoon: ${item.afternoon}`, item.evening && `Evening: ${item.evening}`, item.night && `Night: ${item.night}`, item.when, item.details].filter(Boolean).join(' · ')),
+                followup: followupDate || (followupDays ? `Follow-up in ${followupDays} days` : followupMonths ? `Follow-up in ${followupMonths} months` : ''),
+              }} onApply={text => setNotes(existing => [existing.trim(), text].filter(Boolean).join('\n\n'))} />
+            </>
           )}
 
-          <ComplaintsSection
-            complaints={complaints}
-            onAdd={addComplaint}
-            onRemove={removeComplaint}
-            onUpdate={updateComplaint}
-          />
-
-          <DiagnosesSection
-            diagnoses={diagnoses}
-            onAdd={addDiagnosis}
-            onRemove={removeDiagnosis}
-            onUpdate={updateDiagnosis}
-            readOnly={!canManageClinical}
-          />
-
-          <TreatmentsSection
-            treatments={treatments}
-            onAdd={addTreatment}
-            onRemove={removeTreatment}
-            onUpdate={updateTreatment}
-            readOnly={!canManageClinical}
-          />
-
-          <PrescriptionsSection
-            prescriptions={prescriptions}
-            drugSearch={drugSearch}
-            showDropdown={showDrugDropdown}
-            drugResults={drugResults}
-            drugSearchRef={drugSearchRef}
-            onSearchChange={v => { setDrugSearch(v); setShowDrugDropdown(true) }}
-            onSearchFocus={() => drugSearch.length >= 1 && setShowDrugDropdown(true)}
-            onAddDrug={addDrug}
-            onCreateDrug={handleCreateDrug}
-            onRemove={removePrescription}
-            onUpdate={updatePrescription}
-            onSaveToCatalog={handleSaveToCatalog}
-            onPrint={() => handlePrint('prescription')}
-          />
-
-          <LabSection
-            selectedItems={selectedLabs}
-            selectedCombos={selectedCombos}
-            labSearch={labSearch}
-            showDropdown={showLabDropdown}
-            labCatalog={labCatalog as LabItem[] | undefined}
-            comboCatalog={comboCatalog as LabItem[] | undefined}
-            labSearchRef={labSearchRef}
-            lastLabReports={lastLabReports}
-            onSearchChange={v => { setLabSearch(v); setShowLabDropdown(true) }}
-            onSearchFocus={() => labSearch.length >= 1 && setShowLabDropdown(true)}
-            onAdd={addLabItem}
-            onRemove={removeLabItem}
-            onAddCombo={(item) => {
-              if (!selectedCombos.find(c => c.id === item.id)) setSelectedCombos(c => [...c, item])
-              setLabSearch('')
-              setShowLabDropdown(false)
-            }}
-            onRemoveCombo={(id) => setSelectedCombos(c => c.filter(x => x.id !== id))}
-          />
-
           {saveError && (
-            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
+            <div className="bg-red-50 border border-red-200 rounded-md px-4 py-3 text-sm text-red-600">
               {saveError}
+            </div>
+          )}
+
+          {lisOrderError && (
+            <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 text-sm text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-amber-800">Visit Saved with Lab Order Warning</p>
+                <p className="text-amber-700 text-xs mt-0.5">{lisOrderError}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleRetryLisOrder}
+                  disabled={isRetryingLisOrder}
+                  className="btn btn-primary px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 border-none text-white disabled:opacity-50"
+                >
+                  {isRetryingLisOrder ? 'Retrying…' : 'Retry Lab Order'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/patients/${patientId}`)}
+                  className="btn btn-secondary px-3 py-1.5 text-xs"
+                >
+                  View Patient
+                </button>
+              </div>
             </div>
           )}
 
           {/* Bottom padding so last section isn't hidden behind nothing */}
           <div className="h-8" />
         </form>
+        {!isNoShowOrCancelled && (
+          <div className="hidden xl:block w-72 shrink-0 sticky top-20 space-y-4 pb-8">
+            <PatientBrainSidebar
+              patientId={patientId}
+              onOpenPG={(prompt) => {
+                setPgPrompt(prompt)
+                setIsPGOpen(true)
+              }}
+              onOpenPrepareBrief={() => setIsPrepareOpen(true)}
+              onOpenChanges={() => setIsChangesOpen(true)}
+              onOpenLoops={() => setIsLoopsOpen(true)}
+              onOpenMedIntelligence={() => setIsMedIntelOpen(true)}
+              onOpenTrends={() => navigate(`/patients/${patientId}?tab=labs`)}
+            />
+            <ConsultationContext patientId={patientId} />
+          </div>
+        )}
+        </div>
       </div>
 
-      {patientId ? <AiBot patientId={patientId} /> : null}
+      {/* ─── 22. Sticky Consultation Completion Footer (Section 22) ─── */}
+      <div className="sticky bottom-0 z-30 bg-gradient-to-r from-white via-slate-50/90 to-white backdrop-blur-md border-t border-slate-200/90 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+        <div className="flex items-center gap-3 text-xs">
+          <div className="flex items-center gap-1.5 font-medium text-slate-600">
+            <span className={cn('size-2 rounded-full', isPending ? 'bg-amber-500 animate-pulse' : isNoShowOrCancelled ? 'bg-rose-500' : 'bg-emerald-500 shadow-2xs')} />
+            <span>{isPending ? 'Saving changes…' : isNoShowOrCancelled ? `Status: ${status}` : 'Autosave: Draft active'}</span>
+          </div>
+          {!isNoShowOrCancelled && (
+            <>
+              <span className="text-slate-300">|</span>
+              <div className="hidden md:flex items-center gap-2 text-slate-500">
+                <span className="font-semibold text-slate-800">{complaints.length}</span> complaints ·
+                <span className="font-semibold text-slate-800">{diagnoses.length}</span> diagnoses ·
+                <span className="font-semibold text-slate-800">{prescriptions.length}</span> prescriptions ·
+                <span className="font-semibold text-slate-800">{selectedLabs.length + selectedCombos.length}</span> labs
+              </div>
+            </>
+          )}
+        </div>
 
-      {showSaveModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center animate-in fade-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-8 h-8"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-2">Save Consultation</h3>
-            <p className="text-sm text-slate-500 mb-6">Would you like to complete this consultation or keep it open for later?</p>
-            <div className="flex flex-col gap-3">
-              <button onClick={() => performSave('Completed')} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors">
-                Complete Consultation
-              </button>
-              <button onClick={() => performSave('Waiting')} className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-colors">
-                Keep as Waiting
-              </button>
-              <button onClick={() => setShowSaveModal(false)} className="w-full mt-2 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-colors">
+        <div className="flex items-center gap-2">
+          {isNoShowOrCancelled ? (
+            <>
+              <button
+                type="button"
+                onClick={() => navigate(`/patients/${patientId}`)}
+                className="btn btn-secondary text-xs px-3.5 py-1.5 cursor-pointer"
+              >
                 Cancel
               </button>
-            </div>
-          </div>
+              <button
+                type="button"
+                disabled={isPending || !canManageClinical}
+                onClick={() => performSave(status)}
+                className="btn btn-primary text-xs px-4 py-1.5 font-bold shadow-md shadow-emerald-700/20 cursor-pointer"
+              >
+                {isPending ? 'Saving…' : `Save as ${status}`}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setIsPrepareOpen(true)}
+                className="btn btn-secondary text-xs px-2.5 py-1.5 flex items-center gap-1.5 text-emerald-800 bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 border border-emerald-200/80 shadow-2xs font-semibold cursor-pointer"
+              >
+                <span>📋</span> Brief
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPgPrompt(undefined)
+                  setIsPGOpen(true)
+                }}
+                className="btn text-xs px-2.5 py-1.5 flex items-center gap-1.5 text-emerald-300 hover:text-emerald-200 bg-gradient-to-r from-[#061712] via-[#0d2820] to-[#071913] hover:from-[#081f18] hover:to-[#09221a] border border-emerald-900/60 shadow-2xs font-semibold cursor-pointer"
+              >
+                <span className="text-emerald-400">✦</span> Ask PG
+              </button>
+              <button
+                type="button"
+                disabled={isPending || isSigned}
+                onClick={() => performSave('Open')}
+                className="btn btn-secondary text-xs px-3.5 py-1.5"
+              >
+                Save Draft
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePrint('report')}
+                className="btn btn-secondary text-xs px-3.5 py-1.5 hidden sm:inline-flex"
+              >
+                Preview Note
+              </button>
+              <button
+                type="button"
+                disabled={isPending || isSigned}
+                onClick={() => setShowSaveModal(true)}
+                className="btn btn-primary text-xs px-4 py-1.5 font-bold shadow-md shadow-emerald-700/20 cursor-pointer"
+              >
+                Complete Consultation
+              </button>
+            </>
+          )}
         </div>
-      )}
+      </div>
+      </div>
+
+      {patientId && canManageClinical && !isNoShowOrCancelled ? <AiChartSummary patientId={patientId} /> : null}
+
+      <AlertDialog.Root open={showSaveModal} onOpenChange={setShowSaveModal}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40" />
+          <AlertDialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl max-h-[90dvh] overflow-y-auto">
+            <div className="w-16 h-16 bg-primary-50 text-primary-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-8 h-8"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <AlertDialog.Title className="text-xl font-semibold text-slate-900 text-balance">Review & complete consultation</AlertDialog.Title>
+            <AlertDialog.Description className="mt-2 text-sm text-slate-500 text-pretty">Confirm the documentation for {patientName}. Signing locks this visit; later corrections are recorded as amendments.</AlertDialog.Description>
+            <dl className="my-5 grid grid-cols-2 gap-3 text-sm">{[['Complaints', complaints.filter(item => item.complaint.trim()).length], ['Diagnoses', diagnoses.filter(item => item.diagnosis.trim()).length], ['Prescription lines', prescriptions.filter(item => item.name.trim()).length], ['Lab selections', selectedLabs.length + selectedCombos.length]].map(([label, count]) => <div key={String(label)} className="rounded-lg bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold text-slate-800 tabular-nums">{count}</dd></div>)}</dl>
+            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">{activeAllergies.length ? `Recorded allergies: ${activeAllergies.map(item => item.allergen).join(', ')}` : 'No explicit allergy review is recorded. Confirm allergy status before prescribing.'}</p>
+            {saveError && <p role="alert" className="mt-3 text-sm text-red-700">{saveError}</p>}
+            <div className="flex flex-col gap-3">
+              <button disabled={isPending || isSigned || me?.id !== doctorId} onClick={() => performSave('Completed')} className="btn btn-primary w-full py-2.5">
+                Sign & complete
+              </button>
+              <button disabled={isPending || isSigned} onClick={() => performSave('Waiting')} className="btn btn-secondary w-full py-2.5">
+                Save & await results
+              </button>
+              <AlertDialog.Cancel className="btn btn-secondary w-full mt-2 py-2 text-sm">Return to note</AlertDialog.Cancel>
+            </div>
+            {me?.id !== doctorId && <p className="mt-3 text-xs text-slate-500">Only the assigned clinician can sign this visit.</p>}
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
 
       {/* Hidden Print Layout */}
       {visitDataForPrinting && patient && (
@@ -1388,6 +2040,62 @@ export default function NewVisitPage() {
           type={printType}
         />
       )}
+
+      {/* ─── PG Assistant Drawer (Sections 12–20 & 36) ─── */}
+      <PGAssistantDrawer
+        isOpen={isPGOpen}
+        onClose={() => setIsPGOpen(false)}
+        patientId={patientId}
+        patientName={patient ? `${patient.first_name} ${patient.last_name}` : 'Patient'}
+        opdNumber={patient?.opd_number}
+        initialQuestion={pgPrompt}
+      />
+
+      {/* ─── Pre-Visit Brief Modal (Section 11) ─── */}
+      <PreparePatientModal
+        isOpen={isPrepareOpen}
+        onClose={() => setIsPrepareOpen(false)}
+        patientId={patientId}
+        onAskPG={(prompt) => {
+          setPgPrompt(prompt)
+          setIsPGOpen(true)
+        }}
+      />
+
+      {/* ─── Changes Since Last Visit Modal (Section 22) ─── */}
+      <ChangesSinceLastVisitModal
+        isOpen={isChangesOpen}
+        onClose={() => setIsChangesOpen(false)}
+        patientId={patientId}
+      />
+
+      {/* ─── Open Loops Modal (Section 6 & 7) ─── */}
+      <OpenLoopsModal
+        isOpen={isLoopsOpen}
+        onClose={() => setIsLoopsOpen(false)}
+        patientId={patientId}
+      />
+
+      {/* ─── Prescription Intelligence Modal (Section 5 & 23) ─── */}
+      <MedicationIntelligenceModal
+        isOpen={isMedIntelOpen}
+        onClose={() => setIsMedIntelOpen(false)}
+        patientId={patientId}
+      />
+
+      {/* ─── Smart Plan Extraction Modal (Section 25) ─── */}
+      <SmartPlanExtractionModal
+        isOpen={isSmartPlanOpen}
+        onClose={() => setIsSmartPlanOpen(false)}
+        patientId={patientId}
+        visitId={editingEncounterId || undefined}
+        onPlanApplied={(actions) => {
+          const extraAdvice = actions.map(a => `${a.type.toUpperCase()}: ${a.description}${a.due_in ? ` (${a.due_in})` : ''}`).join('\n')
+          if (extraAdvice) {
+            setAdvice(prev => prev ? `${prev}\n${extraAdvice}` : extraAdvice)
+          }
+        }}
+      />
     </div>
   )
 }

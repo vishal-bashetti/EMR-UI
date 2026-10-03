@@ -40,17 +40,17 @@ export function LabTestGraph({ patientId, testName, referenceRange, unit }: { pa
 
     return (
       <svg width={width} height={height} className="overflow-visible">
-        <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth={showLabels ? 2 : 1.5} strokeLinejoin="round" />
+        <path d={pathD} fill="none" stroke="#059669" strokeWidth={showLabels ? 2.5 : 1.75} strokeLinejoin="round" />
         {points.map((p, i) => (
           <g key={i}>
-            <circle cx={p.x} cy={p.y} r={showLabels ? 4 : 2} fill="#2563eb" className="cursor-pointer transition-all hover:r-6" />
+            <circle cx={p.x} cy={p.y} r={showLabels ? 4.5 : 2} fill="#047857" className="cursor-pointer transition-all hover:r-6" />
             {showLabels && (
-              <text x={p.x} y={p.y - 12} fontSize="12" fill="#475569" textAnchor="middle" fontWeight="bold">
+              <text x={p.x} y={p.y - 12} fontSize="12" fill="#0f172a" textAnchor="middle" fontWeight="bold">
                 {p.d.value}
               </text>
             )}
             {showLabels && (
-              <text x={p.x} y={height - 10} fontSize="11" fill="#94a3b8" textAnchor="middle">
+              <text x={p.x} y={height - 10} fontSize="11" fill="#64748b" textAnchor="middle">
                 {p.d.date}
               </text>
             )}
@@ -62,7 +62,7 @@ export function LabTestGraph({ patientId, testName, referenceRange, unit }: { pa
 
   return (
     <>
-      <div 
+      <div
         className="inline-flex items-center justify-center p-1 cursor-pointer hover:bg-slate-100 rounded opacity-60 hover:opacity-100 transition-all border border-transparent hover:border-slate-200"
         onClick={(e) => { e.stopPropagation(); setIsOpen(true) }}
         title="View test history graph"

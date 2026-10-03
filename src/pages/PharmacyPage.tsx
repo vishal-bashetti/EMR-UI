@@ -72,20 +72,20 @@ export default function PharmacyPage() {
 
   const getStatusColor = (status: string) => {
     const s = status.toLowerCase()
-    if (s === 'waiting' || s === 'pending') return 'bg-amber-100 text-amber-700'
-    if (s === 'processing') return 'bg-blue-100 text-blue-700'
-    if (s === 'fulfilled') return 'bg-emerald-100 text-emerald-700'
-    if (s === 'picked up') return 'bg-purple-100 text-purple-700'
-    if (s === 'cancelled') return 'bg-red-100 text-red-700'
+    if (s === 'waiting' || s === 'pending') return 'bg-gradient-to-r from-amber-50 to-amber-100/90 text-amber-800 border border-amber-200 shadow-2xs'
+    if (s === 'processing') return 'bg-gradient-to-r from-blue-50 to-blue-100/90 text-blue-800 border border-blue-200 shadow-2xs'
+    if (s === 'fulfilled') return 'bg-gradient-to-r from-emerald-50 to-teal-100/90 text-emerald-800 border border-emerald-200 shadow-2xs'
+    if (s === 'picked up') return 'bg-gradient-to-r from-purple-50 to-purple-100/90 text-purple-800 border border-purple-200 shadow-2xs'
+    if (s === 'cancelled') return 'bg-gradient-to-r from-rose-50 to-rose-100/90 text-rose-800 border border-rose-200 shadow-2xs'
     return 'bg-slate-100 text-slate-700'
   }
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="card p-6 bg-gradient-to-r from-white via-emerald-50/20 to-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-            <span className="p-2.5 bg-emerald-100 text-emerald-600 rounded-xl">
+            <span className="p-2.5 badge-icon-emerald rounded-xl shadow-2xs">
               {Icons.pill}
             </span>
             Pharmacy Queue
@@ -95,15 +95,15 @@ export default function PharmacyPage() {
           </p>
         </div>
 
-        <div className="flex bg-slate-200/50 p-1 rounded-lg self-start">
+        <div className="flex bg-slate-200/60 p-1 rounded-xl self-start">
           {['All', 'Waiting', 'Processing', 'Fulfilled', 'Picked Up', 'Cancelled'].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f as any)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
                 filter === f
-                  ? 'bg-white text-emerald-700 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               {f}
@@ -114,13 +114,13 @@ export default function PharmacyPage() {
 
       <div className="">
         {isLoading ? (
-          <div className="bg-white border border-slate-200/60 rounded-2xl shadow-sm p-12 text-center text-slate-500">
+          <div className="card p-12 text-center text-slate-500">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mb-4"></div>
             <p>Loading pharmacy queue…</p>
           </div>
         ) : filteredOrders.length === 0 ? (
-          <div className="bg-white border border-slate-200/60 rounded-2xl shadow-sm p-16 text-center">
-            <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <div className="card p-16 text-center">
+            <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-lg flex items-center justify-center mx-auto mb-4">
               {Icons.pill}
             </div>
             <h3 className="text-lg font-medium text-slate-900">No orders found</h3>
@@ -132,9 +132,9 @@ export default function PharmacyPage() {
               const isWaiting = order.status.toLowerCase() === 'waiting' || order.status.toLowerCase() === 'pending'
               const isProcessing = order.status.toLowerCase() === 'processing'
               const isFulfilled = order.status.toLowerCase() === 'fulfilled'
-              
+
               return (
-                <div key={order.id} className="bg-white border border-slate-200/60 rounded-2xl shadow-sm overflow-hidden p-6 hover:shadow-md transition-shadow">
+                <div key={order.id} className="card overflow-hidden p-6 hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">
@@ -151,7 +151,7 @@ export default function PharmacyPage() {
                     </span>
                   </div>
 
-                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <div className="bg-slate-50 rounded-lg p-4 border border-border">
                     <table className="w-full text-sm text-left">
                       <thead>
                         <tr className="text-slate-500 border-b border-slate-200">
@@ -182,43 +182,43 @@ export default function PharmacyPage() {
                       </div>
                     )}
                   </div>
-                  
+
                   <div className="mt-6 flex justify-end gap-3">
                     {(isWaiting || isProcessing) && (
-                      <button 
+                      <button
                         onClick={() => updateStatus.mutate({ id: order.id, status: 'Cancelled' })}
                         disabled={updateStatus.isPending}
-                        className="bg-white border border-slate-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                        className="btn btn-secondary hover:text-red-600 hover:border-red-200 hover:bg-red-50"
                       >
                         Cancel
                       </button>
                     )}
-                    
+
                     {isWaiting && (
-                      <button 
+                      <button
                         onClick={() => updateStatus.mutate({ id: order.id, status: 'Processing' })}
                         disabled={updateStatus.isPending}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                        className="btn btn-primary px-5 py-2"
                       >
                         Start Processing
                       </button>
                     )}
-                    
+
                     {isProcessing && (
-                      <button 
+                      <button
                         onClick={() => updateStatus.mutate({ id: order.id, status: 'Fulfilled' })}
                         disabled={updateStatus.isPending}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                        className="btn bg-emerald-600 text-white hover:bg-emerald-700 px-5 py-2"
                       >
                         Mark Fulfilled
                       </button>
                     )}
-                    
+
                     {isFulfilled && (
-                      <button 
+                      <button
                         onClick={() => updateStatus.mutate({ id: order.id, status: 'Picked Up' })}
                         disabled={updateStatus.isPending}
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                        className="btn bg-purple-600 text-white hover:bg-purple-700 px-5 py-2"
                       >
                         Mark Picked Up
                       </button>

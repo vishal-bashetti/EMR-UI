@@ -57,7 +57,7 @@ export interface Patient {
   id: number
   first_name: string
   last_name: string
-  dob: string
+  dob: string | null
   gender: string
   contact_number: string
   email: string | null
@@ -73,7 +73,7 @@ export interface Patient {
 export interface PatientInput {
   first_name: string
   last_name: string
-  dob: string
+  dob?: string | null
   gender: string
   contact_number: string
   email?: string
@@ -126,6 +126,8 @@ export interface Appointment {
   doctor?: User
   appointment_type?: AppointmentType | null
   last_visit_date?: string | null
+  encounter_id?: number | null
+  encounter_status?: string | null
 }
 
 export interface AppointmentInput {
@@ -140,6 +142,8 @@ export interface AppointmentsQuery {
   patient_id?: number
   doctor_id?: number
   appointment_date?: string
+  start_date?: string
+  end_date?: string
   status?: string
   search?: string
   skip?: number
@@ -252,7 +256,13 @@ export interface PrescriptionInput {
 }
 
 export interface Encounter {
+  patient_id: number
+  doctor_id: number
+  draft_orders?: VisitPayload['draft_orders'] | null
   id: number
+  version: number
+  signed_at?: string | null
+  signed_by_id?: number | null
   visit_number: number
   appointment_id?: number | null
   encounter_date: string
@@ -261,6 +271,9 @@ export interface Encounter {
   notes?: string | null
   quick_notes?: string | null
   advice?: string | null
+  followup_days?: number | null
+  followup_date?: string | null
+  followup_months?: number | null
 }
 
 export interface PrescriptionItem {
@@ -288,6 +301,8 @@ export interface Prescription {
 
 export interface VisitResponse {
   encounter: Encounter
+  amendments?: VisitAmendment[]
+  lab_order_intent?: VisitLabOrderIntent | null
   vitals: VitalEntry[]
   complaints: Complaint[]
   diagnoses: Diagnosis[]
@@ -295,7 +310,32 @@ export interface VisitResponse {
   prescriptions?: Prescription[]
 }
 
+export interface VisitLabOrderIntent {
+  id: number
+  encounter_id: number
+  source_id: string
+  test_codes: string[]
+  package_codes: string[]
+  status: 'PENDING' | 'PROCESSING' | 'ACCEPTED' | 'FAILED'
+  attempt_count: number
+  remote_order_id?: string | null
+  accession_number?: string | null
+  last_error?: string | null
+}
+
+export interface VisitAmendment {
+  id: number
+  encounter_id: number
+  author_id: number
+  reason: string
+  note: string
+  created_at: string
+}
+
 export interface VisitPayload {
+  draft_orders?: { labs: { id: number; name: string; price: number; lis_code?: string }[]; packages: { id: number; name: string; price: number; lis_code?: string; lis_test_codes?: string[] }[] }
+  expected_version?: number
+  lis_order?: { test_codes: string[]; package_codes: string[]; notes?: string }
   patient_id: number
   doctor_id: number
   appointment_id: number | null
@@ -319,6 +359,7 @@ export interface VisitPayload {
 
 export interface LabCatalogItem {
   id: number
+  lis_code?: string
   name: string
   description: string | null
   price: number
@@ -330,6 +371,8 @@ export interface LabCatalogItem {
 
 export interface LabComboCatalogItem {
   id: number
+  lis_code?: string
+  lis_test_codes?: string[]
   name: string
   description: string | null
   test_ids: number[]
@@ -518,6 +561,7 @@ export interface VisitPayload {
 
 export interface LabCatalogItem {
   id: number
+  lis_code?: string
   name: string
   description: string | null
   price: number
@@ -529,6 +573,8 @@ export interface LabCatalogItem {
 
 export interface LabComboCatalogItem {
   id: number
+  lis_code?: string
+  lis_test_codes?: string[]
   name: string
   description: string | null
   test_ids: number[]
@@ -659,6 +705,8 @@ export interface NotificationSettings {
   treatment_reminder?: { sms: boolean; whatsapp: boolean };
   messaging_api_key?: string;
   is_messaging_authenticated?: boolean;
+  sms_sender_id?: string;
+  [key: string]: any;
 }
 
 export interface Clinic {
@@ -711,4 +759,3 @@ export interface LabComboCatalogInput {
   price: number
   is_active: boolean
 }
-

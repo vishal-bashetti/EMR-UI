@@ -1,20 +1,31 @@
 import { useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { usePatient, useUpdatePatient } from '../hooks/usePatients'
 import { useVisitHistory } from '../hooks/useVisits'
 import { useLatestLabResults, useUpdateLabResult } from '../hooks/useLabResults'
 import { useClinic } from '../hooks/useSettings'
 import { PrintableVisit } from '../components/PrintableVisit'
-
 import { LabTestGraph } from '../components/LabTestGraph'
 import { useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
 import { useMe } from '../hooks/useUsers'
 import { Icons } from '../components/Icons'
+import { cn } from '../utils/cn'
 import { EmptyState } from '../components/EmptyState'
 import { Spinner } from '../components/Spinner'
-import { PaymentModal } from '../components/PaymentModal'
-import type { LabResult, LabResultInput, VisitResponse, Invoice } from '../types'
+import { ClinicalHistory } from '../components/ClinicalHistory'
+import { getAllergies, getProblems } from '../api/clinicalHistory'
+import { addVisitAmendment, submitVisitLabOrder } from '../api/visits'
+import { PatientSnapshot } from '../components/PatientSnapshot'
+import { UnifiedPatientTimeline } from '../components/UnifiedPatientTimeline'
+import { PatientBrainSidebar } from '../components/PatientBrainSidebar'
+import { PGAssistantDrawer } from '../components/PGAssistantDrawer'
+import { PreparePatientModal } from '../components/PreparePatientModal'
+import { ChangesSinceLastVisitModal } from '../components/ChangesSinceLastVisitModal'
+import { OpenLoopsModal } from '../components/OpenLoopsModal'
+import { MedicationIntelligenceModal } from '../components/MedicationIntelligenceModal'
+import type { LabResult, LabResultInput, VisitResponse, Invoice, VisitAmendment, VisitLabOrderIntent, Patient } from '../types'
 
 // ─── Shared style maps ────────────────────────────────────────────────────────
 
@@ -29,112 +40,135 @@ const STATUS_INV: Record<string, string> = {
   Cancelled: 'bg-red-50 text-red-600 border border-red-200',
 }
 
-// ─── Shared primitives ────────────────────────────────────────────────────────
+// ─── 8. Sticky Patient Header (Section 8) ─────────────────────────────────────
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">{children}</p>
-  )
-}
-
-// ─── Patient Avatar ───────────────────────────────────────────────────────────
-
-function PatientAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
-  const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-  const colors = ['from-blue-500 to-blue-600', 'from-violet-500 to-violet-600', 'from-emerald-500 to-emerald-600', 'from-rose-500 to-rose-600', 'from-amber-500 to-amber-600']
-  const color = colors[name.charCodeAt(0) % colors.length]
-  const sz = size === 'sm' ? 'w-9 h-9 text-sm' : size === 'lg' ? 'w-16 h-16 text-xl' : 'w-12 h-12 text-base'
-  return (
-    <div className={`${sz} bg-gradient-to-br ${color} rounded-2xl flex items-center justify-center text-white font-bold shrink-0 shadow-sm`}>
-      {initials}
-    </div>
-  )
-}
-
-// ─── Patient Hero Card ────────────────────────────────────────────────────────
-
-function PatientHero({
+function StickyPatientHeader({
   patient,
   age,
   patientId,
   doctorId,
+  allergies,
+  problems,
   onEdit,
+  onOpenAssistant,
+  onOpenPrepareBrief,
 }: {
-  patient: ReturnType<typeof usePatient>['data'] & object
+  patient: Patient
   age: number | null
   patientId: number
   doctorId?: number
+  allergies: Array<{ id: number; allergen: string; severity: string; reaction?: string | null }>
+  problems: Array<{ id: number; title: string; status: string }>
   onEdit?: () => void
+  onOpenAssistant: () => void
+  onOpenPrepareBrief: () => void
 }) {
-  const { t } = useTranslation()
+  const navigate = useNavigate()
   const name = `${patient.first_name} ${patient.last_name}`
+  const activeProblems = problems.filter(p => p.status !== 'Resolved')
 
   return (
-    <div className="bg-white border-b border-slate-200">
-      <div className="max-w-5xl mx-auto px-6 py-3.5 flex items-center gap-4">
-        <PatientAvatar name={name} size="md" />
+    <div className="sticky top-0 z-20 bg-gradient-to-r from-white via-slate-50/50 to-white border-b border-slate-200 shadow-2xs">
+      {/* Top minimal breadcrumb */}
+      <div className="bg-slate-50/80 border-b border-slate-100 px-4 py-1.5 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => navigate('/patients')}
+            className="flex items-center gap-1 text-slate-500 hover:text-slate-900 font-medium transition-colors"
+          >
+            {Icons.arrowLeft} Patients
+          </button>
+          <span className="text-slate-300">/</span>
+          <span className="font-semibold text-slate-800">{name}</span>
+          <span className="font-mono text-emerald-700 font-medium ml-1">({patient.opd_number || `PT-${patient.id}`})</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenPrepareBrief}
+            className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-gradient-to-r from-emerald-50 to-emerald-100 hover:from-emerald-100 hover:to-emerald-200 border border-emerald-300 px-2.5 py-1 rounded-lg cursor-pointer shadow-2xs"
+          >
+            <span>📋</span> Prepare Brief
+          </button>
+          <button
+            type="button"
+            onClick={onOpenAssistant}
+            className="flex items-center gap-1 text-[11px] font-bold text-slate-800 bg-gradient-to-r from-slate-100 to-slate-200 hover:from-slate-200 hover:to-slate-300 border border-slate-300 px-2.5 py-1 rounded-lg cursor-pointer shadow-2xs"
+          >
+            <span className="text-emerald-600">✦</span> Ask PG
+          </button>
+        </div>
+      </div>
 
-        <div className="flex-1 min-w-0">
-          {/* Name + key demographics inline */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-base font-bold text-slate-900 leading-tight">{name}</h1>
-            {age !== null && <span className="text-sm text-slate-500">{age} yrs</span>}
-            {patient.gender && <span className="text-sm text-slate-500">{patient.gender}</span>}
-            {patient.dob && <span className="text-xs text-slate-400">{patient.dob}</span>}
+      {/* Main Header Banner */}
+      <div className="px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 min-w-0">
+          {/* Avatar with blood group indicator */}
+          <div className="relative shrink-0">
+            <div className="size-11 rounded-xl badge-icon-emerald font-bold text-base flex items-center justify-center shadow-xs">
+              {patient.first_name?.[0] || 'P'}
+            </div>
             {patient.blood_group && (
-              <span className="inline-flex items-center px-1.5 py-0.5 bg-red-50 text-red-700 border border-red-100 rounded-full text-xs font-bold">
+              <span className="absolute -bottom-1 -right-1 text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-gradient-to-r from-rose-600 to-red-700 text-white shadow-xs">
                 {patient.blood_group}
               </span>
             )}
           </div>
 
-          {/* Contact + emergency inline */}
-          <div className="flex flex-wrap items-center gap-3 mt-1">
-            {patient.contact_number && (
-              <span className="flex items-center gap-1 text-xs text-slate-500">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3 text-slate-400 shrink-0"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                {patient.contact_number}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold text-slate-900 leading-tight tracking-tight truncate">
+                {name}
+              </h1>
+              <span className="text-xs font-semibold text-slate-500">
+                {age !== null ? `${age}y` : ''} {patient.gender ? `· ${patient.gender}` : ''}
               </span>
-            )}
-            {patient.email && (
-              <span className="flex items-center gap-1 text-xs text-slate-400">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3 shrink-0"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                {patient.email}
-              </span>
-            )}
-            {patient.address && (
-              <span className="flex items-center gap-1 text-xs text-slate-400">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3 shrink-0"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                {patient.address}
-              </span>
-            )}
-            {(patient.emergency_contact || patient.emergency_phone) && (
-              <span className="flex items-center gap-1 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-full px-2 py-0.5">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3 shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <span className="font-medium">Emergency:</span>
-                {patient.emergency_contact && <span>{patient.emergency_contact}</span>}
-                {patient.emergency_phone && <span>· {patient.emergency_phone}</span>}
-              </span>
-            )}
+              {patient.opd_number && (
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-mono font-medium text-slate-700">
+                  {patient.opd_number}
+                </span>
+              )}
+            </div>
+
+            {/* Critical Allergy Alert + Conditions Inline (Section 8) */}
+            <div className="flex items-center gap-2.5 mt-1 flex-wrap text-xs">
+              {/* Allergy Warning */}
+              {allergies.length > 0 ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-gradient-to-r from-rose-100 via-rose-200/90 to-rose-100 text-rose-900 border border-rose-300 shadow-2xs">
+                  <span>⚠️</span>
+                  <span>ALLERGY: {allergies.map(a => `${a.allergen} (${a.severity})`).join(', ')}</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold gradient-card-emerald text-emerald-900 shadow-2xs">
+                  <span className="text-emerald-700 font-bold">✓</span> No known drug allergies
+                </span>
+              )}
+
+              {/* Major Active Conditions */}
+              {activeProblems.length > 0 && (
+                <span className="text-slate-500 truncate hidden sm:inline">
+                  <span className="font-semibold text-slate-700">Conditions:</span> {activeProblems.map(p => p.title).join(', ')}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
+        {/* Action Buttons */}
         <div className="flex items-center gap-2 shrink-0">
           {onEdit && (
             <button
               onClick={onEdit}
-              className="flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm"
+              className="btn btn-secondary text-xs px-3 py-1.5 font-bold"
             >
-              {Icons.edit}
-              {t('common.edit')}
+              {Icons.edit} Edit
             </button>
           )}
           <Link
             to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}`}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm shadow-blue-200"
+            className="btn btn-primary text-xs px-3.5 py-1.5 font-bold shadow-sm shadow-emerald-700/30"
           >
-            {Icons.plus}
-            {t('patientDetail.newVisit')}
+            {Icons.plus} Start Consultation
           </Link>
         </div>
       </div>
@@ -142,727 +176,162 @@ function PatientHero({
   )
 }
 
-// ─── Latest Visit Summary ─────────────────────────────────────────────────────
+// ─── 11. Patient Overview Tab (Section 11) ────────────────────────────────────
 
-export function LatestVisitSummary({ visit, patientId, doctorId }: { visit: VisitResponse; patientId?: number; doctorId?: number }) {
-  const { encounter, vitals, complaints, diagnoses, treatments, prescriptions } = visit
-  const prescriptionItems = prescriptions?.flatMap(p => p.items || []) || []
-  const [expanded, setExpanded] = useState(false)
-  const dt = new Date(encounter.encounter_date)
-
-  const sections = [
-    {
-      label: 'Vitals', color: 'text-rose-600 bg-rose-50 border-rose-100',
-      empty: 'No vitals',
-      content: vitals.length > 0 && (
-        <div className="space-y-1.5">
-          {vitals.map(v => (
-            <div key={v.id} className="flex justify-between text-sm">
-              <span className="text-slate-500 text-xs">Vital {v.vital_config_id}</span>
-              <span className="font-semibold text-slate-800 text-xs">{v.value}</span>
-            </div>
-          ))}
-        </div>
-      ),
-    },
-    {
-      label: 'Complaints', color: 'text-orange-600 bg-orange-50 border-orange-100',
-      empty: 'None',
-      content: complaints.length > 0 && (
-        <ul className="space-y-1">
-          {complaints.map(c => (
-            <li key={c.id} className="text-xs text-slate-700">
-              <span className="font-medium">{c.complaint}</span>
-              {c.duration && <span className="text-slate-400 ml-1">({c.duration})</span>}
-            </li>
-          ))}
-        </ul>
-      ),
-    },
-    {
-      label: 'Diagnoses', color: 'text-violet-600 bg-violet-50 border-violet-100',
-      empty: 'None',
-      content: diagnoses.length > 0 && (
-        <ul className="space-y-1">
-          {diagnoses.map(d => <li key={d.id} className="text-xs text-slate-700 font-medium">{d.diagnosis}</li>)}
-        </ul>
-      ),
-    },
-    {
-      label: 'Treatments', color: 'text-cyan-600 bg-cyan-50 border-cyan-100',
-      empty: 'None',
-      content: treatments.length > 0 && (
-        <ul className="space-y-1">
-          {treatments.map(tr => <li key={tr.id} className="text-xs text-slate-700">{tr.treatment}</li>)}
-        </ul>
-      ),
-    },
-  ]
+function PatientOverviewTab({
+  patient,
+  latestVisit,
+  labs,
+  invoices,
+  onNavigateTab
+}: {
+  patient: Patient
+  latestVisit?: VisitResponse
+  labs?: LabResult[]
+  invoices?: Invoice[]
+  onNavigateTab: (tab: string) => void
+}) {
+  const rxItems = latestVisit?.prescriptions?.flatMap(p => p.items || []) || []
 
   return (
-    <div className="bg-gradient-to-br from-blue-50/60 to-indigo-50/40 rounded-2xl border border-blue-100 shadow-sm mb-6 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-blue-100/80">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 text-white rounded-xl flex items-center justify-center shrink-0">
-            {Icons.stethoscope}
-          </div>
-          <div>
+    <div className="space-y-5">
+      {/* Greeting card */}
+      <div className="card p-4.5 bg-gradient-to-r from-emerald-50/80 via-teal-50/30 to-white border border-emerald-200/80 rounded-2xl shadow-2xs">
+        <h2 className="text-sm font-bold text-slate-900">
+          Patient Clinical Overview
+        </h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Recent consultations, diagnostic reports, and current management plan.
+        </p>
+      </div>
+
+      {/* Latest Consultation Card */}
+      {latestVisit ? (
+        <div className="card p-4 bg-white border border-slate-200/80 rounded-xl shadow-2xs">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-slate-800">Latest Visit</span>
-              <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">
-                #{encounter.visit_number}
+              <span className="size-7 rounded-lg badge-icon-emerald flex items-center justify-center text-xs font-bold">
+                {Icons.stethoscope}
               </span>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${
-                encounter.status === 'Open'
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-              }`}>
-                {encounter.status}
-              </span>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Latest Consultation #{latestVisit.encounter.visit_number}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {new Date(latestVisit.encounter.encounter_date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {dt.toLocaleDateString('en-GB')}
-              {' · '}{dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-            </p>
-            {encounter.reason && (
-              <p className="text-xs text-slate-600 italic mt-1">"{encounter.reason}"</p>
-            )}
+            <span className={cn(
+              'text-xs font-semibold px-2 py-0.5 rounded-full border',
+              latestVisit.encounter.signed_at || latestVisit.encounter.status === 'Completed'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : 'bg-amber-50 text-amber-800 border-amber-200'
+            )}>
+              {latestVisit.encounter.signed_at ? 'Signed' : latestVisit.encounter.status}
+            </span>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3 mt-3 text-xs">
+            {/* Reason & Diagnoses */}
+            <div className="space-y-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Assessment</span>
+              {latestVisit.encounter.reason && (
+                <p className="text-slate-700"><span className="font-semibold">Reason:</span> "{latestVisit.encounter.reason}"</p>
+              )}
+              {latestVisit.diagnoses.length > 0 ? (
+                <p className="text-slate-700">
+                  <span className="font-semibold">Diagnoses:</span> {latestVisit.diagnoses.map(d => d.diagnosis).join(', ')}
+                </p>
+              ) : (
+                <p className="text-slate-400 italic">No formal diagnosis coded.</p>
+              )}
+            </div>
+
+            {/* Prescribed Meds */}
+            <div className="space-y-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Prescriptions</span>
+              {rxItems.length > 0 ? (
+                <ul className="space-y-1">
+                  {rxItems.slice(0, 3).map((m, i) => (
+                    <li key={i} className="flex justify-between text-slate-800">
+                      <span className="font-semibold">{m.name}</span>
+                      <span className="text-slate-500 font-mono text-[11px]">{[m.morning, m.afternoon, m.evening, m.night].join('-')}</span>
+                    </li>
+                  ))}
+                  {rxItems.length > 3 && (
+                    <li className="text-[10px] text-slate-400">+{rxItems.length - 3} more medications</li>
+                  )}
+                </ul>
+              ) : (
+                <p className="text-slate-400 italic">No medications prescribed in this visit.</p>
+              )}
+            </div>
           </div>
         </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {!['Completed', 'Cancelled', 'No Show'].includes(encounter.status) && patientId && (
-            <Link
-              to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}&edit=true&encounter_id=${encounter.id}`}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-blue-200 shadow-sm"
-            >
-              {Icons.edit} Continue Visit
-            </Link>
-          )}
-          <button
-            onClick={() => setExpanded(e => !e)}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-white/60 rounded-lg transition-colors"
-          >
-            {expanded ? 'Less' : 'More'}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-        </div>
-      </div>
-
-      {/* 4-column summary grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-blue-100/60">
-        {sections.map(sec => (
-          <div key={sec.label} className="px-4 py-3">
-            <p className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${sec.color.split(' ')[0]}`}>
-              {sec.label}
-            </p>
-            {sec.content || <p className="text-xs text-slate-400">{sec.empty}</p>}
-          </div>
-        ))}
-      </div>
-
-      {/* Expanded: prescriptions + notes/advice */}
-      {expanded && (
-        <div className="border-t border-blue-100/60 bg-white/50">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-blue-100/60">
-            {/* Prescriptions */}
-            <div className="px-4 py-3">
-              <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-2">Prescriptions</p>
-              {prescriptionItems.length > 0 ? (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-100">
-                      {['Medicine', 'Timing', 'When', 'Notes'].map(h => (
-                        <th key={h} className="text-left pb-1.5 font-semibold text-slate-400 pr-3">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {prescriptionItems.map((p, i) => (
-                      <tr key={i}>
-                        <td className="py-1.5 font-semibold text-slate-800 pr-3">{p.name}</td>
-                        <td className="py-1.5 text-slate-600 pr-3 font-mono text-[11px]">
-                          {[p.morning, p.afternoon, p.evening, p.night].join('-')}
-                        </td>
-                        <td className="py-1.5 text-slate-500 pr-3">{p.when}</td>
-                        <td className="py-1.5 text-slate-400">{p.details}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : <p className="text-xs text-slate-400">None</p>}
-            </div>
-
-            {/* Notes + Advice */}
-            <div className="px-4 py-3 space-y-3">
-              {encounter.notes && (
-                <div>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Doctor's Notes</p>
-                  <p className="text-xs text-slate-600 leading-relaxed">{encounter.notes}</p>
-                </div>
-              )}
-              {encounter.advice && (
-                <div>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Advice</p>
-                  <p className="text-xs text-slate-600 leading-relaxed">{encounter.advice}</p>
-                </div>
-              )}
-              {!encounter.notes && !encounter.advice && (
-                <p className="text-xs text-slate-400">No notes or advice recorded.</p>
-              )}
-            </div>
-          </div>
+      ) : (
+        <div className="card p-8 text-center bg-white border border-slate-200 rounded-xl">
+          <p className="text-sm font-semibold text-slate-800">No visits on record</p>
+          <p className="text-xs text-slate-400 mt-1">Start a new consultation to record history and treatments.</p>
         </div>
       )}
-    </div>
-  )
-}
 
-// ─── Visit Card (history timeline) ───────────────────────────────────────────
-
-function VisitCard({ visit, index, patientId, doctorId, onPrint }: {
-  visit: VisitResponse
-  index: number
-  patientId?: number
-  doctorId?: number
-  onPrint?: (visit: VisitResponse, type: 'report' | 'prescription') => void
-}) {
-  const { encounter, vitals, complaints, diagnoses, treatments, prescriptions } = visit
-  const prescriptionItems = prescriptions?.flatMap(p => p.items || []) || []
-  const [open, setOpen] = useState(index === 0)
-  const dt = new Date(encounter.encounter_date)
-
-  const hasContent = vitals.length || complaints.length || diagnoses.length || treatments.length || prescriptionItems.length > 0
-
-  return (
-    <div className={`relative bg-white border rounded-2xl transition-all duration-200 ${
-      open ? 'border-blue-200 shadow-sm' : 'border-slate-200 hover:border-slate-300'
-    }`}>
-      {/* Timeline dot */}
-      <div className="absolute -left-[25px] top-5 w-3 h-3 rounded-full border-2 border-white shadow-sm bg-blue-500" />
-
-      {/* Header – always visible */}
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setOpen(o => !o)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o); } }}
-        className="w-full flex items-center justify-between px-5 py-3.5 text-left cursor-pointer"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-bold text-slate-800">Visit #{encounter.visit_number}</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${
-                encounter.status === 'Open'
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : 'bg-slate-100 text-slate-500 border-slate-200'
-              }`}>
-                {encounter.status}
-              </span>
-              {encounter.reason && (
-                <span className="text-xs text-slate-400 italic truncate max-w-[200px]">"{encounter.reason}"</span>
-              )}
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {dt.toLocaleDateString('en-GB')}
-              {' · '}{dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Continue visit for open encounters */}
-          {!['Completed', 'Cancelled', 'No Show'].includes(encounter.status) && patientId && (
-            <Link
-              to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}&edit=true&encounter_id=${encounter.id}`}
-              onClick={e => e.stopPropagation()}
-              className="flex items-center gap-1 text-xs font-semibold text-blue-600 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-lg transition-colors border border-blue-200"
-            >
-              {Icons.edit} Continue
-            </Link>
-          )}
-          {/* Print buttons */}
-          {onPrint && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={e => { e.stopPropagation(); onPrint(visit, 'report') }}
-                className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-white hover:bg-slate-50 px-2 py-1 rounded border border-slate-200 transition-colors"
-                title="Print Report"
-              >
-                {Icons.print} Report
-              </button>
-              {prescriptionItems.length > 0 && (
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); onPrint(visit, 'prescription') }}
-                  className="flex items-center gap-1 text-[10px] font-semibold text-indigo-500 bg-white hover:bg-indigo-50 px-2 py-1 rounded border border-indigo-200 transition-colors"
-                  title="Print Prescription"
-                >
-                  {Icons.print} Rx
-                </button>
-              )}
-            </div>
-          )}
-          {/* summary chips */}
-          {[
-            complaints.length ? `${complaints.length} complaint${complaints.length > 1 ? 's' : ''}` : null,
-            diagnoses.length ? `${diagnoses.length} dx` : null,
-            prescriptionItems.length > 0 ? `${prescriptionItems.length} Rx` : null,
-          ].filter(Boolean).map((chip, i) => (
-            <span key={i} className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full hidden sm:inline">
-              {chip}
-            </span>
-          ))}
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}>
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-        </div>
-      </div>
-
-      {/* Expanded body */}
-      {open && hasContent ? (
-        <div className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-4">
-          {/* Vitals */}
-          {vitals.length > 0 && (
-            <div>
-              <SectionLabel>Vitals</SectionLabel>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                {vitals.map(v => (
-                  <div key={v.id} className="bg-slate-50 rounded-xl px-3 py-2 border border-slate-100">
-                    <p className="text-[10px] text-slate-400 font-medium">Vital {v.vital_config_id}</p>
-                    <p className="text-sm font-bold text-slate-800">{v.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Complaints */}
-          {complaints.length > 0 && (
-            <div>
-              <SectionLabel>Chief Complaints</SectionLabel>
-              <div className="space-y-1.5">
-                {complaints.map(c => (
-                  <div key={c.id} className="flex items-center gap-3 text-sm">
-                    <div className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
-                    <span className="text-slate-700 font-medium">{c.complaint}</span>
-                    {c.duration && <span className="text-slate-400 text-xs">({c.duration})</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Diagnoses & Treatments side by side */}
-          {(diagnoses.length > 0 || treatments.length > 0) && (
-            <div className="grid grid-cols-2 gap-4">
-              {diagnoses.length > 0 && (
-                <div>
-                  <SectionLabel>Diagnoses</SectionLabel>
-                  <div className="space-y-1.5">
-                    {diagnoses.map(d => (
-                      <div key={d.id} className="flex items-center gap-2 text-sm">
-                        <div className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
-                        <span className="text-slate-700 font-medium">{d.diagnosis}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {treatments.length > 0 && (
-                <div>
-                  <SectionLabel>Treatments</SectionLabel>
-                  <div className="flex flex-wrap gap-1.5">
-                    {treatments.map(tr => (
-                      <span key={tr.id} className="text-xs bg-cyan-50 text-cyan-700 border border-cyan-100 px-2.5 py-1 rounded-full font-medium">
-                        {tr.treatment}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Prescriptions */}
-          {prescriptionItems.length > 0 && (
-            <div>
-              <SectionLabel>Prescriptions</SectionLabel>
-              <div className="overflow-x-auto rounded-xl border border-slate-100">
-                <table className="w-full text-xs">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      {['Medicine', 'M', 'A', 'E', 'N', 'When', 'Notes'].map(h => (
-                        <th key={h} className="text-left px-3 py-2 font-semibold text-slate-500">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {prescriptionItems.map((p, i) => (
-                      <tr key={i} className="hover:bg-slate-50/50">
-                        <td className="px-3 py-2 font-semibold text-slate-800">{p.name}</td>
-                        {[p.morning, p.afternoon, p.evening, p.night].map((val, j) => (
-                          <td key={j} className="px-3 py-2 text-center text-slate-600 font-mono">{val || '—'}</td>
-                        ))}
-                        <td className="px-3 py-2 text-slate-500">{p.when || '—'}</td>
-                        <td className="px-3 py-2 text-slate-400">{p.details}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Notes/Advice */}
-          {(encounter.notes || encounter.advice) && (
-            <div className="grid grid-cols-2 gap-4 bg-slate-50 rounded-xl p-3.5 border border-slate-100">
-              {encounter.notes && (
-                <div>
-                  <SectionLabel>Doctor's Notes</SectionLabel>
-                  <p className="text-xs text-slate-600 leading-relaxed">{encounter.notes}</p>
-                </div>
-              )}
-              {encounter.advice && (
-                <div>
-                  <SectionLabel>Advice</SectionLabel>
-                  <p className="text-xs text-slate-600 leading-relaxed">{encounter.advice}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      ) : open && !hasContent ? (
-        <div className="border-t border-slate-100 px-5 py-6 text-center">
-          <p className="text-sm text-slate-400">No clinical details recorded for this visit.</p>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-// ─── Lab Result Update Modal ──────────────────────────────────────────────────
-
-function LabResultUpdateModal({
-  lab, onClose, onSave,
-}: {
-  lab: LabResult
-  onClose: () => void
-  onSave: (form: LabResultInput) => void
-}) {
-  const [form, setForm] = useState<LabResultInput>({
-    test_name: lab.test_name,
-    result_value: lab.result_value || '',
-    unit: lab.unit || '',
-    reference_range: lab.reference_range || '',
-    status: lab.status,
-    notes: lab.notes || '',
-    patient_id: lab.patient_id,
-    encounter_id: lab.encounter_id,
-    catalog_id: lab.catalog_id,
-    cost: lab.cost,
-    ordered_by: lab.ordered_by,
-  })
-
-  const inputCls = 'w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white'
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
-          <div>
-            <h2 className="text-sm font-bold text-slate-900">Update Lab Result</h2>
-            <p className="text-xs text-slate-400 mt-0.5 font-medium">{lab.test_name}</p>
-          </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-lg transition-colors">
-            {Icons.x}
+      {/* Recent Laboratory Results */}
+      <div className="card p-4 bg-white border border-slate-200/80 rounded-xl shadow-2xs">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+            <span className="text-indigo-600">{Icons.flask}</span>
+            Recent Laboratory Findings
+          </h3>
+          <button
+            type="button"
+            onClick={() => onNavigateTab('labs')}
+            className="text-xs font-semibold text-emerald-700 hover:underline"
+          >
+            View all ({labs?.length || 0}) →
           </button>
         </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Result Value</label>
-              <input className={inputCls} value={form.result_value} onChange={e => setForm(f => ({ ...f, result_value: e.target.value }))} placeholder="e.g. 5.2" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Unit</label>
-              <input className={inputCls} value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder="e.g. mg/dL" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reference Range</label>
-            <input className={inputCls} value={form.reference_range} onChange={e => setForm(f => ({ ...f, reference_range: e.target.value }))} placeholder="e.g. 3.5–5.0" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
-            <select className={inputCls} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-              <option value="Pending">Pending</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notes</label>
-            <textarea className={`${inputCls} resize-none min-h-[60px]`} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional notes…" />
-          </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl font-medium">Cancel</button>
-            <button onClick={() => onSave(form)} className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl">Save Result</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
-// ─── Tab content components ───────────────────────────────────────────────────
-
-function VisitHistoryTab({ visits, loading, patientId, doctorId, onPrint }: {
-  visits?: VisitResponse[]
-  loading: boolean
-  patientId: number
-  doctorId?: number
-  onPrint?: (visit: VisitResponse, type: 'report' | 'prescription') => void
-}) {
-  if (loading) return <Spinner />
-  if (!visits?.length) {
-    return (
-      <EmptyState
-        icon={Icons.stethoscope}
-        title="No visits recorded yet"
-        sub='Click "New Visit" to record the first clinical visit'
-      />
-    )
-  }
-  return (
-    // Timeline: left border line
-    <div className="relative pl-8 border-l-2 border-slate-100 ml-2 space-y-4">
-      {visits.map((visit, i) => (
-        <VisitCard key={visit.encounter.id} visit={visit} index={i} patientId={patientId} doctorId={doctorId} onPrint={onPrint} />
-      ))}
-      {/* Start-of-timeline marker */}
-      <div className="absolute bottom-0 -left-[5px] w-2.5 h-2.5 rounded-full bg-slate-200 border-2 border-white" />
-      <Link
-        to={`/visits/new?patient_id=${patientId}&doctor_id=${doctorId || ''}`}
-        className="relative flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 ml-0 mt-4"
-      >
-        {Icons.plus} Add new visit
-      </Link>
-    </div>
-  )
-}
-
-function isOutOfRange(valStr: string | null, refStr: string | null): boolean {
-  if (!valStr || !refStr) return false
-  const val = parseFloat(valStr)
-  if (isNaN(val)) return false
-
-  if (refStr.includes('-')) {
-    const parts = refStr.split('-')
-    if (parts.length >= 2) {
-      const min = parseFloat(parts[0].replace(/[^\d.-]/g, ''))
-      const max = parseFloat(parts[1].replace(/[^\d.-]/g, ''))
-      if (!isNaN(min) && !isNaN(max)) return val < min || val > max
-    }
-  }
-  if (refStr.includes('<')) {
-    const max = parseFloat(refStr.replace(/[^\d.-]/g, ''))
-    if (!isNaN(max)) return val >= max
-  }
-  if (refStr.includes('>')) {
-    const min = parseFloat(refStr.replace(/[^\d.-]/g, ''))
-    if (!isNaN(min)) return val <= min
-  }
-  return false
-}
-
-function LabResultsTab({ results, loading, onEdit }: {
-  results?: LabResult[]
-  loading: boolean
-  onEdit: (lab: LabResult) => void
-}) {
-  if (loading) return <Spinner />
-  if (!results?.length) return <EmptyState icon={Icons.flask} title="No lab results" sub="Lab orders from visits will appear here." />
-
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-100 bg-slate-50">
-            {['Test', 'Status', 'Result', 'Unit', 'Ref Range', 'Ordered', ''].map((h, i) => (
-              <th key={i} className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-5 last:pr-5">{h}</th>
+        {labs && labs.length > 0 ? (
+          <div className="grid sm:grid-cols-2 gap-2 mt-3 text-xs">
+            {labs.slice(0, 4).map(lab => (
+              <div key={lab.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-slate-800">{lab.test_name}</p>
+                  <p className="text-[11px] text-slate-400">{new Date(lab.ordered_date).toLocaleDateString([], { month: 'short', day: 'numeric' })}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-slate-900">{lab.result_value || 'Pending'}</span>
+                  <span className="text-[10px] text-slate-400 block">{lab.unit}</span>
+                </div>
+              </div>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {results.map(lab => {
-            const outOfRange = isOutOfRange(lab.result_value, lab.reference_range)
-            return (
-              <tr key={lab.id} className={`transition-colors group ${outOfRange ? 'bg-red-50/50 hover:bg-red-50/70' : 'hover:bg-slate-50/60'}`}>
-                <td className="px-4 py-3.5 pl-5 font-semibold text-slate-800">
-                  <div className="flex items-center gap-2">
-                    {lab.test_name}
-                    <LabTestGraph patientId={lab.patient_id} testName={lab.test_name} referenceRange={lab.reference_range} unit={lab.unit} />
-                  </div>
-                </td>
-                <td className="px-4 py-3.5">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${STATUS_LAB[lab.status] || 'bg-slate-100 text-slate-500'}`}>
-                    {lab.status}
-                  </span>
-                </td>
-                <td className={`px-4 py-3.5 font-medium ${outOfRange ? 'text-red-600 font-bold' : 'text-slate-700'}`}>
-                  {lab.result_value || <span className="text-slate-300">—</span>} {outOfRange && '*'}
-                </td>
-                <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.unit || <span className="text-slate-300">—</span>}</td>
-                <td className="px-4 py-3.5 text-slate-400 text-xs">{lab.reference_range || <span className="text-slate-300">—</span>}</td>
-                <td className="px-4 py-3.5 text-slate-500 text-xs">
-                  {new Date(lab.ordered_date).toLocaleDateString('en-GB')}
-                </td>
-                <td className="px-4 py-3.5 pr-5 text-right">
-                  <button
-                    onClick={() => onEdit(lab)}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                  >
-                    Update
-                  </button>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-
-function BillingTab({ invoices, loading, onStatusChange }: {
-  invoices?: Invoice[]
-  loading: boolean
-  onStatusChange: (id: number, data: { status: string; payment_mode?: string; transaction_id?: string }) => void
-}) {
-  const [expandedId, setExpandedId] = useState<number | null>(null)
-  const [payingInvoice, setPayingInvoice] = useState<number | null>(null)
-
-  if (loading) return <Spinner />
-  if (!invoices?.length) return <EmptyState icon={Icons.billing} title="No invoices" sub="Invoices are created when lab tests are completed." />
-
-  const totalPaid = invoices.filter(i => i.status === 'Paid').reduce((s, i) => s + i.amount, 0)
-  const totalPending = invoices.filter(i => i.status === 'Pending').reduce((s, i) => s + i.amount, 0)
-
-  return (
-    <div className="space-y-4">
-      {/* Mini summary */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Total Invoices', val: invoices.length, cls: 'text-slate-800' },
-          { label: 'Paid', val: `₹${totalPaid.toFixed(0)}`, cls: 'text-emerald-700' },
-          { label: 'Outstanding', val: `₹${totalPending.toFixed(0)}`, cls: 'text-amber-700' },
-        ].map(s => (
-          <div key={s.label} className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
-            <p className="text-xs text-slate-400 font-medium">{s.label}</p>
-            <p className={`text-lg font-bold mt-0.5 ${s.cls}`}>{s.val}</p>
           </div>
-        ))}
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50">
-              {['Invoice', 'Amount', 'Status', 'Items', ''].map((h, i) => (
-                <th key={i} className="text-left px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wide first:pl-5 last:pr-5">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {invoices.map(inv => (
-              <>
-                <tr
-                  key={inv.id}
-                  className="hover:bg-slate-50/60 transition-colors cursor-pointer"
-                  onClick={() => setExpandedId(expandedId === inv.id ? null : inv.id)}
-                >
-                  <td className="px-4 py-3.5 pl-5 font-bold text-slate-800">#{inv.id}</td>
-                  <td className="px-4 py-3.5 font-semibold text-slate-800">₹{inv.amount.toFixed(2)}</td>
-                  <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
-                    <div className="relative w-fit group">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold cursor-pointer ${STATUS_INV[inv.status] || 'bg-slate-100 text-slate-500'}`}>
-                        {inv.status}
-                      </span>
-                      <select
-                        value={inv.status}
-                        onChange={e => {
-                          const val = e.target.value
-                          if (val === 'Paid') setPayingInvoice(inv.id)
-                          else onStatusChange(inv.id, { status: val })
-                        }}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full"
-                      >
-                        <option value="Pending">Pending</option>
-                        <option value="Paid">Paid</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 text-xs text-slate-400">
-                    {inv.items?.length ?? 0} item{inv.items?.length !== 1 ? 's' : ''}
-                  </td>
-                  <td className="px-4 py-3.5 pr-5 text-right">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`w-3.5 h-3.5 text-slate-400 transition-transform inline ${expandedId === inv.id ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
-                  </td>
-                </tr>
-                {expandedId === inv.id && (
-                  <tr key={`${inv.id}-expand`}>
-                    <td colSpan={5} className="px-6 py-3 bg-slate-50/50 border-t border-slate-50">
-                      {inv.items?.length > 0 ? (
-                        <div className="border-l-2 border-blue-200 pl-3 space-y-1 mb-2">
-                          {inv.items.map(item => (
-                            <div key={item.id} className="flex items-center justify-between text-xs text-slate-600">
-                              <span className="font-medium">{item.service_name}</span>
-                              <span className="text-slate-400">{item.quantity} × ₹{item.unit_price.toFixed(2)} = ₹{(item.quantity * item.unit_price).toFixed(2)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-400 italic mb-2">No line items.</p>
-                      )}
-                      {inv.status === 'Paid' && (
-                        <div className="mt-2 p-2.5 bg-emerald-50/50 border border-emerald-100 rounded-lg flex items-center gap-4 text-xs">
-                          <div><span className="font-semibold text-emerald-800">Mode:</span> <span className="text-emerald-700">{inv.payment_mode || 'Cash'}</span></div>
-                          {inv.transaction_id && <div><span className="font-semibold text-emerald-800">Txn ID:</span> <span className="text-emerald-700 font-mono">{inv.transaction_id}</span></div>}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )}
-              </>
-            ))}
-          </tbody>
-        </table>
+        ) : (
+          <p className="text-xs text-slate-400 py-3 text-center">No diagnostic test orders recorded.</p>
+        )}
       </div>
     </div>
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main Patient Detail Page (Section 9: Three-Area Layout) ──────────────────
 
-const TABS = [
-  { key: 'visits', labelKey: 'patientDetail.tabVisitHistory', icon: Icons.stethoscope },
-  { key: 'labs', labelKey: 'patientDetail.tabLabResults', icon: Icons.flask },
-  { key: 'billing', labelKey: 'patientDetail.tabBilling', icon: Icons.billing },
-] as const
-type Tab = (typeof TABS)[number]['key']
+type ActiveTab = 'overview' | 'timeline' | 'clinical' | 'labs' | 'billing'
 
 export default function PatientDetailPage() {
-  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const patientId = Number(id)
-  const [activeTab, setActiveTab] = useState<Tab>('visits')
+  const [chartParams, setChartParams] = useSearchParams()
+  const requestedTab = chartParams.get('tab')
+  const activeTab: ActiveTab = requestedTab && ['overview', 'timeline', 'clinical', 'labs', 'billing'].includes(requestedTab)
+    ? requestedTab as ActiveTab
+    : 'overview'
+
+  const setActiveTab = (tab: ActiveTab) => setChartParams({ tab }, { replace: true })
+
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false)
   const [editingLab, setEditingLab] = useState<LabResult | null>(null)
   const [editingPatient, setEditingPatient] = useState(false)
   const [printVisit, setPrintVisit] = useState<{ visit: VisitResponse; type: 'report' | 'prescription' } | null>(null)
@@ -873,9 +342,52 @@ export default function PatientDetailPage() {
   const { data: invoices, isLoading: loadingInvoices } = useInvoices(patientId)
   const { data: me } = useMe()
   const { data: clinic } = useClinic()
+
+  const allergiesQuery = useQuery({ queryKey: ['clinicalHistory', patientId, 'allergies'], queryFn: () => getAllergies(patientId), enabled: !!patientId })
+  const problemsQuery = useQuery({ queryKey: ['clinicalHistory', patientId, 'problems'], queryFn: () => getProblems(patientId), enabled: !!patientId })
+
   const updateLab = useUpdateLabResult()
   const updatePatientMutation = useUpdatePatient()
   const updateInvoiceStatus = useUpdateInvoiceStatus()
+
+  const [isPGOpen, setIsPGOpen] = useState(false)
+  const [pgPrompt, setPgPrompt] = useState<string | undefined>()
+  const [isPrepareOpen, setIsPrepareOpen] = useState(false)
+  const [isChangesOpen, setIsChangesOpen] = useState(false)
+  const [isLoopsOpen, setIsLoopsOpen] = useState(false)
+  const [isMedIntelOpen, setIsMedIntelOpen] = useState(false)
+
+  if (loadingPatient) {
+    return (
+      <div className="flex items-center justify-center h-full py-16">
+        <Spinner />
+      </div>
+    )
+  }
+
+  if (!patient) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full py-16 text-slate-400 gap-3">
+        <div className="size-14 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-300">
+          {Icons.patients}
+        </div>
+        <p className="text-sm font-medium">Patient not found</p>
+        <button
+          onClick={() => navigate('/patients')}
+          className="btn btn-secondary text-xs"
+        >
+          {Icons.arrowLeft} Back to Patients
+        </button>
+      </div>
+    )
+  }
+
+  const age = patient.dob
+    ? Math.floor((Date.now() - new Date(patient.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
+    : null
+
+  const latestVisit = visitHistory?.[0]
+  const previousVisit = visitHistory?.[1]
 
   const handlePrint = (visit: VisitResponse, type: 'report' | 'prescription') => {
     setPrintVisit({ visit, type })
@@ -887,138 +399,299 @@ export default function PatientDetailPage() {
     setEditingLab(null)
   }
 
-  if (loadingPatient) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <Spinner />
-      </div>
-    )
-  }
-
-  if (!patient) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
-        <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-300">
-          {Icons.patients}
-        </div>
-        <p className="text-sm font-medium">{t('patientDetail.notFound')}</p>
-        <button
-          onClick={() => navigate('/patients')}
-          className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
-        >
-          {Icons.arrowLeft} {t('patientDetail.backToPatients')}
-        </button>
-      </div>
-    )
-  }
-
-  const patientName = `${patient.first_name} ${patient.last_name}`
-  // eslint-disable-next-line react-hooks/purity
-  const now = Date.now()
-  const age = patient.dob
-    ? Math.floor((now - new Date(patient.dob).getTime()) / (365.25 * 24 * 3600 * 1000))
-    : null
-
-  // Tab data counts for badges
-  const tabCounts: Record<Tab, number | undefined> = {
-    visits: visitHistory?.length,
-    labs: labResults?.length,
-    billing: invoices?.length,
-  }
-
   return (
-    <div className="min-h-full bg-slate-50">
-      {/* Sticky header: breadcrumb + patient banner */}
-      <div className="sticky top-0 z-10 shadow-sm">
-        {/* Breadcrumb */}
-        <div className="bg-white/95 backdrop-blur-sm border-b border-slate-100 px-4 py-2 flex items-center gap-1.5">
-          <button
-            onClick={() => navigate('/patients')}
-            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-slate-100 shrink-0"
-          >
-            {Icons.arrowLeft}
-            {t('patients.title')}
-          </button>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-slate-300 shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
-          <span className="text-sm font-semibold text-slate-800 truncate max-w-xs">{patientName}</span>
-        </div>
-        {/* Compact patient banner */}
-        <PatientHero patient={patient} age={age} patientId={patientId} doctorId={me?.id} onEdit={() => setEditingPatient(true)} />
-      </div>
+    <div className="min-h-full bg-slate-100/60 flex flex-col font-sans">
+      {/* ─── 8. Sticky Patient Header ─── */}
+      <StickyPatientHeader
+        patient={patient}
+        age={age}
+        patientId={patientId}
+        doctorId={me?.id}
+        allergies={allergiesQuery.data || []}
+        problems={problemsQuery.data || []}
+        onEdit={() => setEditingPatient(true)}
+        onOpenAssistant={() => {
+          setPgPrompt(undefined)
+          setIsPGOpen(true)
+        }}
+        onOpenPrepareBrief={() => setIsPrepareOpen(true)}
+      />
 
-      <div className="max-w-5xl mx-auto px-6 py-4">
-        {/* Tab bar */}
-        <div className="flex items-center gap-1 mb-4 bg-white border border-slate-200 rounded-xl p-1 w-fit shadow-sm">
-          {TABS.map(tab => {
-            const count = tabCounts[tab.key]
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === tab.key
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <span className={`${activeTab === tab.key ? 'text-blue-100' : 'text-slate-400'}`}>
+      {/* ─── 9. Three-Area Workspace Layout (Section 9) ─── */}
+      <div className="flex-1 max-w-[1560px] w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Patient Navigation (2 Cols) */}
+        <aside className="lg:col-span-2 card p-2 bg-white border border-slate-200/80 rounded-xl space-y-1 shadow-2xs">
+          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Patient Chart
+          </p>
+          {[
+            { key: 'overview', label: 'Overview', icon: Icons.dashboard },
+            { key: 'timeline', label: 'Timeline', icon: Icons.calendar, badge: visitHistory?.length },
+            { key: 'clinical', label: 'History & Meds', icon: Icons.activity },
+            { key: 'labs', label: 'Labs & Reports', icon: Icons.flask, badge: labResults?.length },
+            { key: 'billing', label: 'Invoices', icon: Icons.billing, badge: invoices?.length },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as ActiveTab)}
+              className={cn(
+                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer',
+                activeTab === tab.key
+                  ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500/30'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              )}
+            >
+              <div className="flex items-center gap-2.5 truncate">
+                <span className={cn('size-4 shrink-0', activeTab === tab.key ? 'text-emerald-700' : 'text-slate-400')}>
                   {tab.icon}
                 </span>
-                {t(tab.labelKey)}
-                {count !== undefined && count > 0 && (
-                  <span className={`text-xs px-1.5 py-0.5 rounded-md font-bold ${
-                    activeTab === tab.key ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-500'
-                  }`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+                <span className="truncate">{tab.label}</span>
+              </div>
+              {tab.badge !== undefined && tab.badge > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </aside>
 
-        {/* Tab content */}
-        {activeTab === 'visits' && (
-          <VisitHistoryTab
-            visits={visitHistory}
-            loading={loadingVisits}
+        {/* Center Column: Active Clinical Workspace (7 Cols) */}
+        <section className="lg:col-span-7 min-w-0 space-y-4">
+          {activeTab === 'overview' && (
+            <PatientOverviewTab
+              patient={patient}
+              latestVisit={latestVisit}
+              labs={labResults}
+              invoices={invoices}
+              onNavigateTab={(t) => setActiveTab(t as ActiveTab)}
+            />
+          )}
+
+          {activeTab === 'timeline' && (
+            <div className="card p-4 sm:p-5 bg-white border border-slate-200/80 rounded-xl shadow-2xs">
+              <UnifiedPatientTimeline
+                patientId={patientId}
+                visits={visitHistory}
+                labs={labResults}
+                invoices={invoices}
+                canAmend={me?.role?.name === 'Admin' || !!me?.role?.permissions?.some(p => p.name === 'manage_clinical')}
+                onPrint={handlePrint}
+                onEditLab={setEditingLab}
+              />
+            </div>
+          )}
+
+          {activeTab === 'clinical' && (
+            <div className="card p-4 sm:p-5 bg-white border border-slate-200/80 rounded-xl shadow-2xs">
+              <ClinicalHistory patientId={patientId} />
+            </div>
+          )}
+
+          {activeTab === 'labs' && (
+            <div className="card p-4 sm:p-5 bg-white border border-slate-200/80 rounded-xl shadow-2xs">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+                <h3 className="text-sm font-bold text-slate-900">Diagnostic Reports</h3>
+                <Link to="/labs" className="btn btn-secondary text-xs py-1 px-2.5">
+                  Order Laboratory Tests
+                </Link>
+              </div>
+              {labResults && labResults.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[10px] font-bold uppercase text-slate-400">
+                        <th className="py-2 px-2">Test Name</th>
+                        <th className="py-2 px-2">Status</th>
+                        <th className="py-2 px-2">Value</th>
+                        <th className="py-2 px-2">Ref Range</th>
+                        <th className="py-2 px-2">Trend</th>
+                        <th className="py-2 px-2">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {labResults.map(lab => (
+                        <tr key={lab.id} className="hover:bg-slate-50/70">
+                          <td className="py-2.5 px-2 font-bold text-slate-800">
+                            {lab.test_name}
+                          </td>
+                          <td className="py-2.5 px-2">
+                            <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-bold', STATUS_LAB[lab.status] || 'bg-slate-100 text-slate-600')}>
+                              {lab.status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 font-bold text-slate-900">
+                            {lab.result_value || '—'} {lab.unit}
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-500 font-mono text-[11px]">
+                            {lab.reference_range || '—'}
+                          </td>
+                          <td className="py-2.5 px-2">
+                            <LabTestGraph
+                              patientId={patientId}
+                              testName={lab.test_name}
+                              referenceRange={lab.reference_range}
+                              unit={lab.unit}
+                            />
+                          </td>
+                          <td className="py-2.5 px-2 text-slate-400">
+                            {new Date(lab.ordered_date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 py-6 text-center">No laboratory results documented.</p>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'billing' && (
+            <div className="card p-4 sm:p-5 bg-white border border-slate-200/80 rounded-xl shadow-2xs">
+              <h3 className="text-sm font-bold text-slate-900 pb-3 mb-3 border-b border-slate-100">
+                Patient Invoices & Statements
+              </h3>
+              {invoices && invoices.length > 0 ? (
+                <div className="space-y-2">
+                  {invoices.map(inv => (
+                    <div key={inv.id} className="p-3 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between text-xs">
+                      <div>
+                        <p className="font-bold text-slate-800">Invoice #{inv.id}</p>
+                        <p className="text-[11px] text-slate-400">{new Date(inv.created_at).toLocaleDateString()}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-slate-900 text-sm">₹{inv.amount.toFixed(2)}</p>
+                        <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-bold', STATUS_INV[inv.status] || 'bg-slate-100 text-slate-600')}>
+                          {inv.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 py-6 text-center">No invoices recorded for this patient.</p>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Right Column: Persistent Patient Brain & Snapshot (3 Cols) (Section 10) */}
+        <section className="lg:col-span-3 min-w-0 space-y-4">
+          <PatientBrainSidebar
             patientId={patientId}
-            doctorId={me?.id}
-            onPrint={handlePrint}
+            onOpenPG={(prompt) => {
+              setPgPrompt(prompt)
+              setIsPGOpen(true)
+            }}
+            onOpenPrepareBrief={() => setIsPrepareOpen(true)}
+            onOpenChanges={() => setIsChangesOpen(true)}
+            onOpenLoops={() => setIsLoopsOpen(true)}
+            onOpenMedIntelligence={() => setIsMedIntelOpen(true)}
+            onOpenTrends={() => setActiveTab('labs')}
           />
-        )}
-        {activeTab === 'labs' && (
-          <LabResultsTab
-            results={labResults}
-            loading={loadingLabs}
-            onEdit={setEditingLab}
+          <PatientSnapshot
+            patient={patient}
+            latestVisit={latestVisit}
+            previousVisit={previousVisit}
+            onOpenAssistant={() => {
+              setPgPrompt(undefined)
+              setIsPGOpen(true)
+            }}
           />
-        )}
-        {activeTab === 'billing' && (
-          <BillingTab
-            invoices={invoices}
-            loading={loadingInvoices}
-            onStatusChange={(id, status) => updateInvoiceStatus.mutate({ id, status })}
-          />
-        )}
+        </section>
       </div>
 
-      {editingLab && (
-        <LabResultUpdateModal
-          lab={editingLab}
-          onClose={() => setEditingLab(null)}
-          onSave={handleLabSave}
-        />
-      )}
+      {/* ─── PG Assistant Drawer (Sections 12–20 & 36) ─── */}
+      <PGAssistantDrawer
+        isOpen={isPGOpen}
+        onClose={() => setIsPGOpen(false)}
+        patientId={patientId}
+        patientName={`${patient.first_name} ${patient.last_name}`}
+        opdNumber={patient.opd_number}
+        initialQuestion={pgPrompt}
+      />
 
+      {/* ─── Pre-Visit Brief Modal (Section 11) ─── */}
+      <PreparePatientModal
+        isOpen={isPrepareOpen}
+        onClose={() => setIsPrepareOpen(false)}
+        patientId={patientId}
+        onAskPG={(prompt) => {
+          setPgPrompt(prompt)
+          setIsPGOpen(true)
+        }}
+      />
+
+      {/* ─── Changes Since Last Visit Modal (Section 22) ─── */}
+      <ChangesSinceLastVisitModal
+        isOpen={isChangesOpen}
+        onClose={() => setIsChangesOpen(false)}
+        patientId={patientId}
+      />
+
+      {/* ─── Open Loops Modal (Section 6 & 7) ─── */}
+      <OpenLoopsModal
+        isOpen={isLoopsOpen}
+        onClose={() => setIsLoopsOpen(false)}
+        patientId={patientId}
+      />
+
+      {/* ─── Prescription Intelligence Modal (Section 5 & 23) ─── */}
+      <MedicationIntelligenceModal
+        isOpen={isMedIntelOpen}
+        onClose={() => setIsMedIntelOpen(false)}
+        patientId={patientId}
+      />
+
+      {/* Modals & Print previews */}
       {editingPatient && patient && (
-        <PatientEditModal
-          patient={patient}
-          onClose={() => setEditingPatient(false)}
-          onSave={async (form) => {
-            await updatePatientMutation.mutateAsync({ id: patient.id, data: form })
-          }}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-2xs">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+            <h3 className="text-base font-bold text-slate-900 mb-4">Edit Demographics</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Contact Number</label>
+                <input
+                  type="text"
+                  defaultValue={patient.contact_number || ''}
+                  id="edit-phone"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-3">
+                <button type="button" onClick={() => setEditingPatient(false)} className="btn btn-secondary text-xs">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const phone = (document.getElementById('edit-phone') as HTMLInputElement)?.value
+                    await updatePatientMutation.mutateAsync({
+                      id: patient.id,
+                      data: {
+                        first_name: patient.first_name,
+                        last_name: patient.last_name,
+                        gender: patient.gender,
+                        dob: patient.dob,
+                        contact_number: phone,
+                        email: patient.email || undefined,
+                        blood_group: patient.blood_group || undefined,
+                        opd_number: patient.opd_number || undefined,
+                      },
+                    })
+                    setEditingPatient(false)
+                  }}
+                  className="btn btn-primary bg-emerald-600 text-white text-xs"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {printVisit && patient && (
@@ -1031,115 +704,6 @@ export default function PatientDetailPage() {
           onReady={() => window.print()}
         />
       )}
-    </div>
-  )
-}
-
-function PatientEditModal({
-  patient, onClose, onSave,
-}: {
-  patient: ReturnType<typeof usePatient>['data'] & object
-  onClose: () => void
-  onSave: (form: any) => Promise<void>
-}) {
-  const [form, setForm] = useState({
-    first_name: patient.first_name || '',
-    last_name: patient.last_name || '',
-    dob: patient.dob || '',
-    gender: patient.gender || '',
-    contact_number: patient.contact_number || '',
-    email: patient.email || '',
-    blood_group: patient.blood_group || '',
-    address: patient.address || '',
-    language: patient.language || '',
-    opd_number: patient.opd_number || '',
-    emergency_contact: patient.emergency_contact || '',
-    emergency_phone: patient.emergency_phone || '',
-  })
-  const [loading, setLoading] = useState(false)
-  const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white'
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    try {
-      await onSave(form)
-      onClose()
-    } finally {
-      setLoading(false)
-    }
-  }
-  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e.target.value }))
-
-  return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-900">Edit Patient</h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">{Icons.x}</button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">First Name *</label>
-            <input className={inputCls} value={form.first_name} onChange={set('first_name')} required />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Last Name *</label>
-            <input className={inputCls} value={form.last_name} onChange={set('last_name')} required />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">DOB *</label>
-            <input type="date" className={inputCls} value={form.dob} max={new Date().toISOString().split('T')[0]} onChange={set('dob')} required />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Gender *</label>
-            <select className={inputCls} value={form.gender} onChange={set('gender')} required>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Contact Number *</label>
-            <input className={inputCls} value={form.contact_number} onChange={set('contact_number')} required />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Email</label>
-            <input type="email" className={inputCls} value={form.email} onChange={set('email')} />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Blood Group *</label>
-            <select className={inputCls} value={form.blood_group} onChange={set('blood_group')} required>
-              <option value="" disabled>Select</option>
-              {['A+', 'A−', 'B+', 'B−', 'AB+', 'AB−', 'O+', 'O−'].map((g) => <option key={g}>{g}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">OPD Number</label>
-            <input className={inputCls} value={form.opd_number} onChange={set('opd_number')} />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Address</label>
-            <input className={inputCls} value={form.address} onChange={set('address')} />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Language</label>
-            <input className={inputCls} value={form.language} onChange={set('language')} />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Emergency Contact</label>
-            <input className={inputCls} value={form.emergency_contact} onChange={set('emergency_contact')} />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Emergency Phone</label>
-            <input className={inputCls} value={form.emergency_phone} onChange={set('emergency_phone')} />
-          </div>
-          <div className="col-span-2 flex justify-end gap-3 pt-4 border-t border-slate-100 mt-2">
-            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
-            <button type="submit" disabled={loading} className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-60">{loading ? 'Saving...' : 'Save Changes'}</button>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }

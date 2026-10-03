@@ -14,12 +14,19 @@ import {
 import { usePatients, useCreatePatient } from '../hooks/usePatients'
 import { useDoctors } from '../hooks/useUsers'
 import { useSettings } from '../hooks/useSettings'
+import { useClinicClosures, closureReason } from '../hooks/useClinicClosures'
+import { isAxiosError } from 'axios'
 import { useCreateInvoice, useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
 import { PaymentModal } from '../components/PaymentModal'
 import { InvoiceModal } from '../components/InvoiceModal'
+import { consultationPath, localDate } from '../utils/workflow'
+import { Icons } from '../components/Icons'
+import { cn } from '../utils/cn'
 import type { Appointment, AppointmentInput, Patient } from '../types'
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
+
+type CalendarViewMode = 'day' | 'week' | 'month'
 
 function generateTimeSlots(start?: string, end?: string, durationStr?: string): string[] {
   const duration = parseInt(durationStr ?? '', 10)
@@ -45,9 +52,9 @@ function getInitials(first?: string, last?: string): string {
 }
 
 const AVATAR_PALETTE = [
-  '#4361ee', '#7209b7', '#e63946', '#2b9348',
-  '#f77f00', '#4cc9f0', '#dc2f02', '#3a0ca3',
-  '#06d6a0', '#f72585',
+  '#059669', '#0d9488', '#0284c7', '#4f46e5',
+  '#7c3aed', '#c026d3', '#db2777', '#ea580c',
+  '#d97706', '#16a34a',
 ]
 
 function avatarColor(name = ''): string {
@@ -58,133 +65,84 @@ function avatarColor(name = ''): string {
 
 function formatLongDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-GB')
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 function isToday(dateStr: string): boolean {
-  const t = new Date()
-  t.setMinutes(t.getMinutes() - t.getTimezoneOffset())
-  return t.toISOString().split('T')[0] === dateStr
+  return localDate() === dateStr
 }
 
-// ─── Shared Styles (injected once) ───────────────────────────────────────────
+function getWeekDays(dateStr: string): { start: string; end: string; days: Date[] } {
+  const base = new Date(dateStr + 'T00:00:00')
+  const day = base.getDay() // 0 is Sun, 1 is Mon...
+  const diff = base.getDate() - day + (day === 0 ? -6 : 1) // align to Monday
+  const monday = new Date(base)
+  monday.setDate(diff)
 
-const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-  .appt-page * { box-sizing: border-box; }
-
-  /* Time slot row */
-  .ts-row { transition: background 0.14s; }
-  .ts-row:hover { background: rgba(67,97,238,0.025); }
-  .ts-row:hover .ts-add { opacity: 1 !important; transform: scale(1) !important; }
-
-  /* Appointment card */
-  .appt-card {
-    transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease;
-    cursor: pointer;
-    user-select: none;
+  const days: Date[] = []
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    days.push(d)
   }
-  .appt-card:hover {
-    transform: translateY(-4px) scale(1.015);
-    box-shadow: 0 16px 36px rgba(0,0,0,0.14);
-  }
+  const start = localDate(days[0])
+  const end = localDate(days[6])
+  return { start, end, days }
+}
 
-  /* Modal animations */
-  .modal-backdrop { animation: mbIn 0.22s ease forwards; }
-  .modal-sheet { animation: msIn 0.28s cubic-bezier(0.34,1.56,0.64,1) forwards; }
-  @keyframes mbIn { from { opacity:0; } to { opacity:1; } }
-  @keyframes msIn { from { opacity:0; transform:scale(0.9) translateY(20px); } to { opacity:1; transform:scale(1) translateY(0); } }
+function getMonthDays(dateStr: string): { start: string; end: string; monthLabel: string; days: Date[]; currentMonth: number } {
+  const base = new Date(dateStr + 'T00:00:00')
+  const year = base.getFullYear()
+  const month = base.getMonth()
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
 
-  /* Form fields */
-  .appt-input {
-    width: 100%;
-    border: 1.5px solid #dde3f0;
-    border-radius: 10px;
-    padding: 10px 14px;
-    font-size: 14px;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    background: #fafbff;
-    color: #0f172a;
-    outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-    appearance: none;
-  }
-  .appt-input:focus {
-    border-color: #4361ee;
-    box-shadow: 0 0 0 3.5px rgba(67,97,238,0.13);
-    background: #fff;
+  // Align start to preceding Monday
+  const startDay = firstDay.getDay()
+  const offset = startDay === 0 ? 6 : startDay - 1
+  const calStart = new Date(firstDay)
+  calStart.setDate(firstDay.getDate() - offset)
+
+  const days: Date[] = []
+  const cur = new Date(calStart)
+  for (let i = 0; i < 42; i++) {
+    days.push(new Date(cur))
+    cur.setDate(cur.getDate() + 1)
+    if (i >= 28 && cur.getMonth() !== month && cur.getDay() === 1) {
+      break
+    }
   }
 
-  /* Nav buttons */
-  .nav-pill-btn {
-    padding: 9px 14px;
-    background: none; border: none; cursor: pointer;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-weight: 600; color: #64748b;
-    transition: background 0.15s, color 0.15s;
+  return {
+    start: localDate(days[0]),
+    end: localDate(days[days.length - 1]),
+    monthLabel: base.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+    days,
+    currentMonth: month,
   }
-  .nav-pill-btn:hover { background: #4361ee; color: white; }
+}
 
-  /* Patient row */
-  .pt-row { transition: background 0.12s; cursor: pointer; }
-  .pt-row:hover { background: #eef1ff; }
-
-  /* Pulsing dot */
-  @keyframes pdot { 0%,100%{opacity:1} 50%{opacity:0.35} }
-  .pdot { animation: pdot 1.8s ease-in-out infinite; }
-
-  /* CTA button */
-  .cta-btn {
-    background: linear-gradient(135deg, #4361ee 0%, #7209b7 100%);
-    box-shadow: 0 4px 16px rgba(67,97,238,0.38);
-    border: none; cursor: pointer; color: white;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    font-weight: 700; border-radius: 12px;
-    padding: 10px 22px; font-size: 13px; letter-spacing: 0.02em;
-    display: flex; align-items: center; gap: 6px;
-    transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
-  }
-  .cta-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(67,97,238,0.48); filter: brightness(1.06); }
-  .cta-btn:active { transform: translateY(0); }
-  .cta-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-  /* Ghost cancel btn */
-  .ghost-btn {
-    padding: 10px 20px; font-size: 13px; font-weight: 600;
-    color: #64748b; background: #f1f5f9; border: none;
-    border-radius: 10px; cursor: pointer;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    transition: background 0.15s;
-  }
-  .ghost-btn:hover { background: #e2e8f0; }
-
-  /* Danger btn */
-  .danger-btn {
-    color: #ef4444; background: #fef2f2; border: 1.5px solid #fecaca;
-    font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 10px;
-    cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif;
-    transition: background 0.15s;
-  }
-  .danger-btn:hover { background: #fee2e2; }
-
-  /* Scrollbar */
-  .thin-scroll::-webkit-scrollbar { width: 4px; }
-  .thin-scroll::-webkit-scrollbar-track { background: transparent; }
-  .thin-scroll::-webkit-scrollbar-thumb { background: #dde3f0; border-radius: 4px; }
-`
-
-// ─── Reusable sub-components ─────────────────────────────────────────────────
+// ─── Reusable Sub-components ─────────────────────────────────────────────────
 
 function Avatar({ first, last, size = 36, fontSize = 12 }: { first?: string; last?: string; size?: number; fontSize?: number }) {
   const bg = avatarColor(first || '')
   return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%', flexShrink: 0,
-      background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize, fontWeight: 800, color: 'white', letterSpacing: '0.04em',
-      boxShadow: `0 3px 10px ${bg}50`,
-    }}>
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        flexShrink: 0,
+        background: bg,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize,
+        fontWeight: 800,
+        color: 'white',
+        letterSpacing: '0.04em',
+      }}
+    >
       {getInitials(first, last)}
     </div>
   )
@@ -192,44 +150,28 @@ function Avatar({ first, last, size = 36, fontSize = 12 }: { first?: string; las
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <div style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
       {children}
     </div>
   )
 }
 
-function ModalCard({ onClose, title, children, maxWidth = 440 }: { onClose: () => void; title: ReactNode; children: ReactNode; maxWidth?: number }) {
+function ModalCard({ onClose, title, children, maxWidth = 480 }: { onClose: () => void; title: ReactNode; children: ReactNode; maxWidth?: number }) {
   return (
-    <div className="modal-backdrop" style={{
-      position: 'fixed', inset: 0,
-      background: 'rgba(8,12,35,0.65)',
-      backdropFilter: 'blur(10px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 50, padding: '20px', overflowY: 'auto',
-    }}>
-      <div className="modal-sheet" style={{
-        background: 'white', borderRadius: 22, width: '100%', maxWidth,
-        boxShadow: '0 28px 72px rgba(0,0,0,0.28)', overflow: 'hidden',
-        position: 'relative', margin: '20px 0',
-      }}>
-        {/* Gradient top bar */}
-        <div style={{ height: 5, background: 'linear-gradient(90deg, #4361ee, #7209b7, #f72585)' }} />
-        <div style={{ padding: 26 }}>
-          {/* Close */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+      <div
+        className="bg-white rounded-2xl w-full shadow-2xl border border-slate-200 overflow-hidden relative my-6"
+        style={{ maxWidth }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6">
           <button
             onClick={onClose}
-            style={{
-              position: 'absolute', top: 18, right: 18,
-              width: 32, height: 32, borderRadius: '50%',
-              background: '#f1f5f9', border: 'none', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#64748b', fontSize: 14, fontWeight: 700,
-              fontFamily: 'inherit', transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = '#e2e8f0')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = '#f1f5f9')}
-          >✕</button>
-          <h3 style={{ fontSize: 19, fontWeight: 800, color: '#0f172a', margin: '0 0 22px', letterSpacing: '-0.4px' }}>
+            className="absolute top-5 right-5 size-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center text-sm font-bold transition-colors cursor-pointer"
+          >
+            ✕
+          </button>
+          <h3 className="text-lg font-bold text-slate-900 mb-5">
             {title}
           </h3>
           {children}
@@ -239,7 +181,7 @@ function ModalCard({ onClose, title, children, maxWidth = 440 }: { onClose: () =
   )
 }
 
-// ─── Form state types ─────────────────────────────────────────────────────────
+// ─── Form State Types ────────────────────────────────────────────────────────
 
 interface ScheduleForm {
   patient_id: number | string
@@ -268,9 +210,19 @@ interface NewPatientForm {
 type NewPatientTextField = 'first_name' | 'last_name' | 'contact_number' | 'dob'
 
 const EMPTY_PATIENT_FORM: NewPatientForm = {
-  first_name: '', last_name: '', dob: '', gender: 'Male', contact_number: '',
-  email: '', blood_group: 'A+', emergency_contact: '', emergency_phone: '', address: '',
-  opd_number: '', language: '', is_active: 1,
+  first_name: '',
+  last_name: '',
+  dob: '',
+  gender: 'Male',
+  contact_number: '',
+  email: '',
+  blood_group: 'A+',
+  emergency_contact: '',
+  emergency_phone: '',
+  address: '',
+  opd_number: '',
+  language: '',
+  is_active: 1,
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -278,51 +230,79 @@ const EMPTY_PATIENT_FORM: NewPatientForm = {
 export default function AppointmentsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const d = new Date()
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-    return d.toISOString().split('T')[0]
-  })
+
+  // Calendar View: 'day' (Default for doctor), 'week', 'month'
+  const [viewMode, setViewMode] = useState<CalendarViewMode>('day')
+  const [selectedDate, setSelectedDate] = useState<string>(() => localDate())
+
+  // Modal controls
   const [showForm, setShowForm] = useState(false)
+  const [bookingError, setBookingError] = useState('')
+  const { data: closures } = useClinicClosures()
+  const selectedClosure = closureReason(closures, selectedDate)
   const [billApptId, setBillApptId] = useState<number | null>(null)
   const [payingInvoice, setPayingInvoice] = useState<number | null>(null)
-  const [form, setForm] = useState<ScheduleForm>({ patient_id: '', doctor_id: '', appointment_type_id: '', appointment_time: '', status: 'Scheduled' })
+  const [form, setForm] = useState<ScheduleForm>({
+    patient_id: '',
+    doctor_id: '',
+    appointment_type_id: '',
+    appointment_time: '',
+    status: 'Scheduled',
+  })
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
-  
-  const createInvoice = useCreateInvoice()
-  const { data: invoices } = useInvoices(undefined, selectedDate, selectedDate)
-  const updateInvoiceStatus = useUpdateInvoiceStatus()
-
   const [showCreatePatient, setShowCreatePatient] = useState(false)
   const [patientForm, setPatientForm] = useState<NewPatientForm>(EMPTY_PATIENT_FORM)
 
+  // Compute week and month boundaries
+  const weekRange = useMemo(() => getWeekDays(selectedDate), [selectedDate])
+  const monthRange = useMemo(() => getMonthDays(selectedDate), [selectedDate])
+
+  // Determine query parameters based on viewMode
+  const queryParams = useMemo(() => {
+    if (viewMode === 'day') {
+      return { appointment_date: selectedDate }
+    }
+    if (viewMode === 'week') {
+      return { start_date: weekRange.start, end_date: weekRange.end }
+    }
+    return { start_date: monthRange.start, end_date: monthRange.end }
+  }, [viewMode, selectedDate, weekRange, monthRange])
+
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(searchQuery), 300)
-    return () => clearTimeout(t)
+    const tm = setTimeout(() => setDebouncedSearch(searchQuery), 300)
+    return () => clearTimeout(tm)
   }, [searchQuery])
 
+  // Queries & Mutations
   const { data: settings, isLoading: loadingSettings } = useSettings()
   const { data: statuses } = useAppointmentStatuses()
   const { data: types } = useAppointmentTypes()
-  const { data: appointments, isLoading: loadingAppointments } = useAppointments({ appointment_date: selectedDate })
+  const { data: appointments, isLoading: loadingAppointments } = useAppointments(queryParams)
   const { data: patients, isFetching: loadingPatients } = usePatients(debouncedSearch)
   const { data: doctors } = useDoctors()
   const { data: appointmentDetails, isLoading: loadingDetails } = useAppointment(selectedAppointmentId)
+  const { data: invoices } = useInvoices(undefined, queryParams.start_date || selectedDate, queryParams.end_date || selectedDate)
+
+  const createInvoice = useCreateInvoice()
+  const updateInvoiceStatus = useUpdateInvoiceStatus()
   const create = useCreateAppointment()
   const createPatientMut = useCreatePatient()
   const updateAppt = useUpdateAppointment()
   const remove = useDeleteAppointment()
 
-  const isSelectedApptUneditable = appointmentDetails && ['No Show', 'Completed', 'Cancelled'].includes(appointmentDetails.status)
+  const isSelectedApptUneditable =
+    appointmentDetails && ['No Show', 'Completed', 'Cancelled'].includes(appointmentDetails.status)
 
+  // Slots for Day view
   const timeSlots = useMemo(
     () => generateTimeSlots(settings?.start_time, settings?.end_time, settings?.slot_duration_minutes),
     [settings]
   )
 
+  // Group appointments by time (HH:MM) for Day view
   const appointmentsByTime = useMemo(() => {
     const map: Record<string, Appointment[]> = {}
     if (appointments) {
@@ -330,18 +310,41 @@ export default function AppointmentsPage() {
         if (a.appointment_time) {
           const parts = a.appointment_time.split('T')
           if (parts.length > 1) {
-            const ts = parts[1].substring(0, 5)
-            if (!map[ts]) map[ts] = []
-            map[ts].push(a)
+            const datePart = parts[0]
+            if (datePart === selectedDate) {
+              const ts = parts[1].substring(0, 5)
+              if (!map[ts]) map[ts] = []
+              map[ts].push(a)
+            }
           }
+        }
+      })
+    }
+    return map
+  }, [appointments, selectedDate])
+
+  // Group appointments by date (YYYY-MM-DD) for Week and Month views
+  const appointmentsByDay = useMemo(() => {
+    const map: Record<string, Appointment[]> = {}
+    if (appointments) {
+      appointments.forEach((a) => {
+        if (a.appointment_time) {
+          const dStr = a.appointment_time.split('T')[0]
+          if (!map[dStr]) map[dStr] = []
+          map[dStr].push(a)
         }
       })
     }
     return map
   }, [appointments])
 
+  // Actions
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    const closed = closureReason(closures, form.appointment_time.slice(0, 10))
+    if (closed) { setBookingError(`Clinic closed: ${closed}. Choose another date.`); return }
+    setBookingError('')
+    try {
     await create.mutateAsync({
       patient_id: Number(form.patient_id),
       doctor_id: Number(form.doctor_id),
@@ -350,6 +353,9 @@ export default function AppointmentsPage() {
       status: form.status,
     })
     resetScheduleForm()
+    } catch (error) {
+      setBookingError(isAxiosError(error) ? error.response?.data?.detail || 'Unable to book appointment.' : 'Unable to book appointment.')
+    }
   }
 
   const handleCreatePatient = async (e: FormEvent) => {
@@ -365,7 +371,13 @@ export default function AppointmentsPage() {
   }
 
   const resetScheduleForm = () => {
-    setForm({ patient_id: '', doctor_id: '', appointment_type_id: '', appointment_time: '', status: 'Scheduled' })
+    setForm({
+      patient_id: '',
+      doctor_id: '',
+      appointment_type_id: '',
+      appointment_time: '',
+      status: 'Scheduled',
+    })
     setSearchQuery('')
     setSelectedPatient(null)
     setShowCreatePatient(false)
@@ -374,373 +386,799 @@ export default function AppointmentsPage() {
 
   const getStatusColor = (statusName: string): string => {
     const s = statuses?.find((st) => st.name === statusName)
-    return s?.color || '#374151'
+    return s?.color || '#059669'
   }
 
-  const adjustDate = (days: number) => {
-    const d = new Date(selectedDate)
-    d.setDate(d.getDate() + days)
-    setSelectedDate(d.toISOString().split('T')[0])
+  const adjustDate = (delta: number) => {
+    const d = new Date(selectedDate + 'T00:00:00')
+    if (viewMode === 'day') {
+      d.setDate(d.getDate() + delta)
+    } else if (viewMode === 'week') {
+      d.setDate(d.getDate() + delta * 7)
+    } else if (viewMode === 'month') {
+      d.setMonth(d.getMonth() + delta)
+    }
+    setSelectedDate(localDate(d))
   }
 
-  const handleTimeSlotClick = (time: string) => {
-    setForm((f) => ({ ...f, appointment_time: `${selectedDate}T${time}` }))
+  const handleTimeSlotClick = (time: string, dateStr: string = selectedDate) => {
+    const closed = closureReason(closures, dateStr)
+    if (closed) { setBookingError(`Clinic closed on ${dateStr}: ${closed}. Choose another date.`); return }
+    setBookingError('')
+    setForm((f) => ({ ...f, appointment_time: `${dateStr}T${time}` }))
+    setShowForm(true)
+  }
+
+  // Quick Walk-in action (Section 31)
+  const handleQuickWalkin = () => {
+    const now = new Date()
+    const hh = String(now.getHours()).padStart(2, '0')
+    const mm = String(now.getMinutes()).padStart(2, '0')
+    const walkinType = types?.find((t) => t.name.toLowerCase().includes('walk'))
+    setForm({
+      patient_id: '',
+      doctor_id: doctors?.[0]?.id ? String(doctors[0].id) : '',
+      appointment_type_id: walkinType ? String(walkinType.id) : types?.[0]?.id ? String(types[0].id) : '',
+      appointment_time: `${localDate(now)}T${hh}:${mm}`,
+      status: 'Arrived',
+    })
     setShowForm(true)
   }
 
   const totalAppts = appointments?.length || 0
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div
-      className="appt-page"
-      style={{
-        minHeight: '100%',
-        backgroundColor: '#eef0f8',
-        backgroundImage: 'radial-gradient(circle, #bfc7df 1px, transparent 1px)',
-        backgroundSize: '26px 26px',
-        fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif",
-        padding: '28px 32px',
-      }}
-    >
-      <style>{GLOBAL_CSS}</style>
-
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 26, flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {/* Icon */}
-            <div style={{
-              width: 40, height: 40, borderRadius: 11,
-              background: 'linear-gradient(135deg, #4361ee, #7209b7)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 14px rgba(67,97,238,0.38)', flexShrink: 0,
-            }}>
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                <line x1="16" y1="2" x2="16" y2="6" />
-                <line x1="8" y1="2" x2="8" y2="6" />
-                <line x1="3" y1="10" x2="21" y2="10" />
-              </svg>
-            </div>
-            <h1 style={{ fontSize: 27, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.6px', margin: 0 }}>
-              {t('appointments.title')}
-            </h1>
+    <div className="min-h-full bg-slate-50/60 p-4 md:p-6 lg:p-8 space-y-6">
+      {/* ── Header & Navigation Bar (Section 7 & 31) ─────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-white via-slate-50/50 to-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+        {/* Left: Title & Date Info */}
+        <div className="flex items-center gap-3.5">
+          <div className="size-11 rounded-xl badge-icon-emerald flex items-center justify-center shrink-0">
+            {Icons.calendar}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, marginLeft: 52 }}>
-            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>{formatLongDate(selectedDate)}</span>
-            {isToday(selectedDate) && (
-              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', color: '#4361ee', background: '#eef1ff', padding: '2px 9px', borderRadius: 20, textTransform: 'uppercase' }}>{t('appointments.today')}</span>
-            )}
-            {totalAppts > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: 'white', border: '1.5px solid #e2e8f0', padding: '2px 9px', borderRadius: 20 }}>
-                {t('appointments.count', { count: totalAppts })}
-              </span>
-            )}
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                {t('appointments.title')}
+              </h1>
+              {totalAppts > 0 && (
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  {totalAppts} {totalAppts === 1 ? 'visit' : 'visits'}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mt-0.5">
+              {viewMode === 'day' && <span>{formatLongDate(selectedDate)}</span>}
+              {viewMode === 'week' && (
+                <span>
+                  {formatLongDate(weekRange.start)} – {formatLongDate(weekRange.end)}
+                </span>
+              )}
+              {viewMode === 'month' && <span>{monthRange.monthLabel}</span>}
+              {isToday(selectedDate) && viewMode === 'day' && (
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                  Today
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Date navigator */}
-          <div style={{ display: 'flex', alignItems: 'center', background: 'white', borderRadius: 13, border: '1.5px solid #dde3f0', boxShadow: '0 2px 10px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
-            <button className="nav-pill-btn" onClick={() => adjustDate(-1)} style={{ borderRight: '1px solid #e2e8f0', fontSize: 17 }}>‹</button>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              style={{ border: 'none', outline: 'none', padding: '9px 14px', fontSize: 13, fontWeight: 700, color: '#1e293b', fontFamily: 'inherit', background: 'transparent', cursor: 'pointer', minWidth: 138 }}
-            />
-            <button className="nav-pill-btn" onClick={() => adjustDate(1)} style={{ borderLeft: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', fontSize: 17 }}>›</button>
-            <button className="nav-pill-btn" onClick={() => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); setSelectedDate(d.toISOString().split('T')[0]) }} style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.04em', color: '#4361ee' }}>TODAY</button>
+        {/* Center: View Switcher (Day / Week / Month) */}
+        <div className="flex items-center bg-slate-100/90 p-1 rounded-xl border border-slate-200/80 self-start md:self-auto shadow-2xs">
+          {(['day', 'week', 'month'] as CalendarViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              className={cn(
+                'px-4 py-1.5 rounded-lg text-xs font-bold capitalize transition-all cursor-pointer',
+                viewMode === mode
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs font-extrabold'
+                  : 'text-slate-600 hover:text-slate-900'
+              )}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
+
+        {/* Right: Date navigator & Actions */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Navigator buttons */}
+          <div className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+            <button
+              onClick={() => adjustDate(-1)}
+              title="Previous"
+              className="px-3 py-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-sm font-bold border-r border-slate-200 cursor-pointer"
+            >
+              ‹
+            </button>
+            {viewMode === 'day' ? (
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-3 py-1.5 text-xs font-bold text-slate-800 bg-transparent outline-none cursor-pointer"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSelectedDate(localDate())}
+                className="px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                {viewMode === 'week' ? 'Week View' : 'Month View'}
+              </button>
+            )}
+            <button
+              onClick={() => adjustDate(1)}
+              title="Next"
+              className="px-3 py-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-900 text-sm font-bold border-l border-slate-200 cursor-pointer"
+            >
+              ›
+            </button>
+            <button
+              onClick={() => setSelectedDate(localDate())}
+              className="px-3 py-1.5 text-[11px] font-extrabold text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 border-l border-slate-200 uppercase tracking-wide cursor-pointer"
+            >
+              Today
+            </button>
           </div>
-          {/* CTA */}
-          <button className="cta-btn" onClick={() => handleTimeSlotClick('09:00')}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            {t('appointments.schedule')}
+
+          {/* Quick Walk-in action (Section 31) */}
+          <button
+            type="button"
+            onClick={handleQuickWalkin}
+            className="btn btn-secondary text-xs px-3.5 py-1.5 bg-gradient-to-r from-amber-50 to-amber-100/90 text-amber-900 border border-amber-300 hover:from-amber-100 hover:to-amber-200 font-bold flex items-center gap-1.5 shadow-2xs"
+            title="Fast register a walk-in patient"
+          >
+            {Icons.plus}
+            <span>Walk-in</span>
+          </button>
+
+          {/* New Scheduled Appointment CTA */}
+          <button
+            type="button"
+            onClick={() => handleTimeSlotClick('09:00')}
+            className="btn btn-primary text-xs px-3.5 py-1.5 font-bold flex items-center gap-1.5 shadow-sm shadow-emerald-700/30"
+          >
+            {Icons.plus}
+            <span>{t('appointments.schedule')}</span>
           </button>
         </div>
       </div>
 
-      {/* ── Loading indicator ──────────────────────────────────────────── */}
+      {/* ── Loading schedule bar ────────────────────────────────────────── */}
+      {selectedClosure && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Clinic closed: {selectedClosure}. Existing appointments remain visible for rescheduling.</p>}
+      {bookingError && !showForm && <p role="alert" className="text-sm text-red-700">{bookingError}</p>}
       {(loadingSettings || loadingAppointments) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 18, padding: '11px 16px', background: 'white', borderRadius: 11, border: '1.5px solid #dde3f0', width: 'fit-content', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-          <div className="pdot" style={{ width: 8, height: 8, borderRadius: '50%', background: '#4361ee' }} />
-          <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>{t('appointments.loadingSchedule')}</span>
+        <div className="flex items-center gap-2 px-3.5 py-2 bg-white rounded-xl border border-slate-200 shadow-2xs w-fit text-xs text-slate-600">
+          <span className="size-2 rounded-full bg-emerald-600 animate-pulse" />
+          <span>{t('appointments.loadingSchedule')}</span>
         </div>
       )}
 
-      {/* ── Schedule Grid ──────────────────────────────────────────────── */}
-      {!loadingSettings && settings && (
-        <div style={{ background: 'white', borderRadius: 20, border: '1.5px solid #dde3f0', overflow: 'hidden', boxShadow: '0 6px 28px rgba(0,0,0,0.08)' }}>
-
-          {/* Column header row */}
-          <div style={{ display: 'flex', background: '#1a2547', borderBottom: '2px solid #eef0f8' }}>
-            <div style={{ width: 88, flexShrink: 0, padding: '13px 0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>{t('appointments.time')}</span>
+      {/* ── 1. DAY VIEW (Default for Doctor) ────────────────────────────── */}
+      {viewMode === 'day' && !loadingSettings && settings && (
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          {/* Header Row */}
+          <div className="flex bg-slate-900 text-white text-[11px] font-bold uppercase tracking-wider">
+            <div className="w-24 sm:w-28 shrink-0 py-3 text-center border-r border-slate-800 text-slate-400">
+              {t('appointments.time')}
             </div>
-            <div style={{ flex: 1, padding: '13px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em', color: '#64748b', textTransform: 'uppercase' }}>{t('appointments.patientSlots')}</span>
-              {totalAppts > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: '#4361ee', background: '#eef1ff', padding: '2px 8px', borderRadius: 10, letterSpacing: '0.05em' }}>{t('appointments.booked', { count: totalAppts })}</span>}
+            <div className="flex-1 py-3 px-4 flex items-center justify-between text-slate-300">
+              <span>{t('appointments.patientSlots')}</span>
+              {totalAppts > 0 && (
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  {totalAppts} scheduled today
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Time rows */}
-          {timeSlots.map((time, idx) => {
-            const slotApps = appointmentsByTime[time] || []
-            const isHour = time.endsWith(':00')
-            return (
-              <div
-                key={time}
-                className="ts-row"
-                style={{ display: 'flex', borderBottom: idx < timeSlots.length - 1 ? '1px solid #f1f4fb' : 'none', minHeight: 80 }}
-              >
-                {/* Time column */}
-                <div style={{
-                  width: 88, flexShrink: 0,
-                  background: isHour ? '#1a2547' : '#202d5c',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  borderRight: '2px solid #f1f4fb',
-                  position: 'relative',
-                }}>
-                  {isHour && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'rgba(67,97,238,0.5)' }} />}
-                  <span style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: isHour ? 14 : 12,
-                    fontWeight: isHour ? 600 : 400,
-                    color: isHour ? 'white' : 'rgba(255,255,255,0.5)',
-                    letterSpacing: '0.05em',
-                  }}>{time}</span>
-                </div>
+          {/* Time Slot Rows */}
+          <div className="divide-y divide-slate-100">
+            {timeSlots.map((time) => {
+              const slotApps = appointmentsByTime[time] || []
+              const isHour = time.endsWith(':00')
 
-                {/* Content area */}
+              return (
                 <div
-                  style={{ flex: 1, padding: '12px 16px', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', cursor: 'default' }}
-                  onClick={(e: MouseEvent) => { if (e.target === e.currentTarget) handleTimeSlotClick(time) }}
+                  key={time}
+                  className="flex min-h-[76px] hover:bg-slate-50/50 transition-colors group"
                 >
-                  {slotApps.length === 0 ? (
-                    <div onClick={() => handleTimeSlotClick(time)} style={{ flex: 1, display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 6 }}>
-                      <span style={{ fontSize: 12, color: '#cbd5e1', fontStyle: 'italic' }}>{t('appointments.available')}</span>
-                    </div>
-                  ) : (
-                    <>
-                      {slotApps.map((a) => {
-                        const sc = getStatusColor(a.status)
-                        return (
-                          <div
-                            key={a.id}
-                            className="appt-card"
-                            onClick={(e: MouseEvent) => { e.stopPropagation(); setSelectedAppointmentId(a.id) }}
-                            style={{
-                              background: 'white', border: '1.5px solid #e8edf5',
-                              borderLeft: `5px solid ${sc}`,
-                              borderRadius: 13, padding: '11px 14px', width: 218,
-                              boxShadow: '0 2px 10px rgba(0,0,0,0.07)',
-                              display: 'flex', flexDirection: 'column', gap: 7,
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                              <Avatar first={a.patient?.first_name} last={a.patient?.last_name} size={34} fontSize={11} />
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <div style={{ fontWeight: 700, fontSize: 13, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {a.patient?.first_name} {a.patient?.last_name}
+                  {/* Time gutter */}
+                  <div
+                    className={cn(
+                      'w-24 sm:w-28 shrink-0 flex items-center justify-center font-mono text-xs border-r border-slate-100',
+                      isHour
+                        ? 'bg-slate-900 text-white font-bold'
+                        : 'bg-slate-800/90 text-slate-400 font-medium'
+                    )}
+                  >
+                    {time}
+                  </div>
+
+                  {/* Slot content */}
+                  <div
+                    className="flex-1 p-2.5 sm:p-3 flex flex-wrap items-center gap-3 cursor-default"
+                    onClick={(e) => {
+                      if (e.target === e.currentTarget) handleTimeSlotClick(time)
+                    }}
+                  >
+                    {slotApps.length === 0 ? (
+                      <div
+                        onClick={() => handleTimeSlotClick(time)}
+                        className="flex-1 flex items-center gap-2 py-2 text-xs text-slate-300 hover:text-slate-400 cursor-pointer italic"
+                      >
+                        <span>{t('appointments.available')}</span>
+                        <span className="hidden group-hover:inline-block not-italic text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                          + Book
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        {slotApps.map((a) => {
+                          const sc = getStatusColor(a.status)
+                          const isWalkin =
+                            a.appointment_type?.name?.toLowerCase().includes('walk') ||
+                            a.status === 'Arrived'
+                          const apptInvoice = invoices?.find(
+                            (inv) =>
+                              inv.appointment_id === a.id ||
+                              (inv.patient_id === a.patient_id && !inv.appointment_id)
+                          )
+                          const isPaid = apptInvoice?.status?.toLowerCase() === 'paid'
+
+                          return (
+                            <div
+                              key={a.id}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedAppointmentId(a.id)
+                              }}
+                              className="w-72 bg-white rounded-xl border border-slate-200/90 p-3 shadow-2xs hover:shadow-md hover:border-slate-300 transition-all cursor-pointer flex flex-col justify-between gap-2.5 relative border-l-4"
+                              style={{ borderLeftColor: sc }}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <Avatar
+                                    first={a.patient?.first_name}
+                                    last={a.patient?.last_name}
+                                    size={32}
+                                    fontSize={11}
+                                  />
+                                  <div className="min-w-0">
+                                    <h4 className="text-xs font-bold text-slate-900 truncate">
+                                      {a.patient?.first_name} {a.patient?.last_name}
+                                    </h4>
+                                    <p className="text-[11px] text-slate-400 truncate">
+                                      Dr. {a.doctor?.username}
+                                    </p>
+                                  </div>
                                 </div>
-                                <div style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
-                                  Dr. {a.doctor?.username}
+
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  <span
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase"
+                                    style={{
+                                      backgroundColor: `${sc}15`,
+                                      color: sc,
+                                      border: `1px solid ${sc}30`,
+                                    }}
+                                  >
+                                    {a.status}
+                                  </span>
+                                  {isWalkin && (
+                                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                                      Walk-in
+                                    </span>
+                                  )}
                                 </div>
                               </div>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                              {(() => {
-                                const apptInvoice = invoices?.find(inv => inv.appointment_id === a.id || (inv.patient_id === a.patient_id && !inv.appointment_id))
-                                if (apptInvoice) {
-                                  const isPaid = apptInvoice.status.toLowerCase() === 'paid'
-                                  return (
-                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                      <span style={{ fontSize: 9, fontWeight: 800, padding: '3px 6px', borderRadius: 12, backgroundColor: isPaid ? '#ecfdf5' : '#fffbeb', color: isPaid ? '#059669' : '#d97706', border: `1px solid ${isPaid ? '#a7f3d0' : '#fde68a'}` }}>
-                                        ₹{apptInvoice.amount}
-                                      </span>
-                                      {!isPaid && (
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); setPayingInvoice(apptInvoice.id) }}
-                                          style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 12, backgroundColor: '#4361ee', color: 'white', border: 'none', cursor: 'pointer' }}
-                                        >Pay</button>
+
+                              {/* Card actions & billing */}
+                              <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+                                {/* Direct consultation link */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigate(consultationPath(a))
+                                  }}
+                                  className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 hover:underline cursor-pointer"
+                                >
+                                  {Icons.stethoscope}
+                                  <span>Start Consult</span>
+                                </button>
+
+                                {/* Billing badge */}
+                                {apptInvoice ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className={cn(
+                                        'text-[10px] font-bold px-2 py-0.5 rounded-md border',
+                                        isPaid
+                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                          : 'bg-amber-50 text-amber-800 border-amber-200'
                                       )}
+                                    >
+                                      ₹{apptInvoice.amount} {isPaid ? 'Paid' : 'Due'}
+                                    </span>
+                                    {!isPaid && (
                                       <button
-                                        onClick={(e) => { e.stopPropagation(); setBillApptId(a.id) }}
-                                        style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 12, backgroundColor: '#f1f5f9', color: '#475569', border: 'none', cursor: 'pointer' }}
-                                      >Edit</button>
-                                    </div>
-                                  )
-                                }
-                                return (
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setPayingInvoice(apptInvoice.id)
+                                        }}
+                                        className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer"
+                                      >
+                                        Pay
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); setBillApptId(a.id) }}
-                                    style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 12, backgroundColor: '#f1f5f9', color: '#475569', border: 'none', cursor: 'pointer' }}
-                                  >+ Bill</button>
-                                )
-                              })()}
-                              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '3px 9px', borderRadius: 20, backgroundColor: `${sc}18`, color: sc }}>
-                                {a.status}
-                              </span>
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setBillApptId(a.id)
+                                    }}
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer"
+                                  >
+                                    + Bill
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )
-                      })}
-                      <button
-                        className="ts-add"
-                        onClick={(e: MouseEvent) => { e.stopPropagation(); handleTimeSlotClick(time) }}
-                        style={{ fontSize: 11, fontWeight: 700, color: '#4361ee', background: '#eef1ff', border: '1.5px dashed #c7d2fe', padding: '9px 14px', borderRadius: 11, cursor: 'pointer', opacity: 0, transform: 'scale(0.9)', transition: 'all 0.18s', fontFamily: 'inherit' }}
-                      >{t('appointments.add')}</button>
-                    </>
+                          )
+                        })}
+
+                        <button
+                          type="button"
+                          onClick={() => handleTimeSlotClick(time)}
+                          className="text-xs font-bold text-emerald-700 bg-emerald-50/80 hover:bg-emerald-100 border border-dashed border-emerald-300 px-3 py-1.5 rounded-xl cursor-pointer transition-all"
+                        >
+                          + Add
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── 2. WEEK VIEW (Section 7) ────────────────────────────────────── */}
+      {viewMode === 'week' && (
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          {/* Week Grid Header */}
+          <div className="grid grid-cols-7 bg-slate-900 text-white border-b border-slate-800 divide-x divide-slate-800 text-center">
+            {weekRange.days.map((dayDate) => {
+              const dStr = localDate(dayDate)
+              const isTodayCol = isToday(dStr)
+              const count = appointmentsByDay[dStr]?.length || 0
+
+              return (
+                <div
+                  key={dStr}
+                  className={cn(
+                    'py-3 px-2',
+                    isTodayCol && 'bg-emerald-950/60 ring-2 ring-emerald-500 inset-0'
+                  )}
+                >
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    {dayDate.toLocaleDateString('en-GB', { weekday: 'short' })}
+                  </p>
+                  <p
+                    className={cn(
+                      'text-sm font-extrabold mt-0.5',
+                      isTodayCol ? 'text-emerald-400' : 'text-slate-100'
+                    )}
+                  >
+                    {dayDate.getDate()} {dayDate.toLocaleDateString('en-GB', { month: 'short' })}
+                  </p>
+                  {count > 0 && (
+                    <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.2 rounded-full bg-slate-800 text-slate-300">
+                      {count} {count === 1 ? 'visit' : 'visits'}
+                    </span>
                   )}
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
+
+          {/* Week Columns Content */}
+          <div className="grid grid-cols-7 divide-x divide-slate-100 min-h-[500px]">
+            {weekRange.days.map((dayDate) => {
+              const dStr = localDate(dayDate)
+              const dayAppts = appointmentsByDay[dStr] || []
+              const isTodayCol = isToday(dStr)
+
+              return (
+                <div
+                  key={dStr}
+                  className={cn(
+                    'p-2.5 flex flex-col justify-between gap-2',
+                    isTodayCol ? 'bg-emerald-50/20' : 'bg-white'
+                  )}
+                >
+                  <div className="space-y-2">
+                    {dayAppts.map((a) => {
+                      const sc = getStatusColor(a.status)
+                      const timeStr = a.appointment_time
+                        ? new Date(a.appointment_time).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : ''
+                      const isWalkin =
+                        a.appointment_type?.name?.toLowerCase().includes('walk') ||
+                        a.status === 'Arrived'
+
+                      return (
+                        <div
+                          key={a.id}
+                          onClick={() => setSelectedAppointmentId(a.id)}
+                          className="bg-white rounded-xl border border-slate-200/90 p-2.5 shadow-2xs hover:shadow-xs hover:border-slate-300 transition-all cursor-pointer border-l-4"
+                          style={{ borderLeftColor: sc }}
+                        >
+                          <div className="flex items-center justify-between text-[11px] mb-1">
+                            <span className="font-mono font-bold text-slate-700">{timeStr}</span>
+                            <span
+                              className="text-[9px] font-extrabold px-1.5 py-0.2 rounded-md uppercase"
+                              style={{
+                                backgroundColor: `${sc}15`,
+                                color: sc,
+                              }}
+                            >
+                              {a.status}
+                            </span>
+                          </div>
+
+                          <p className="text-xs font-bold text-slate-900 truncate">
+                            {a.patient?.first_name} {a.patient?.last_name}
+                          </p>
+                          <p className="text-[10px] text-slate-400 truncate">
+                            Dr. {a.doctor?.username}
+                          </p>
+
+                          <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-100 text-[10px]">
+                            {isWalkin ? (
+                              <span className="font-bold text-amber-700 bg-amber-50 px-1 rounded">
+                                Walk-in
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">
+                                {a.appointment_type?.name || 'Routine'}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                navigate(consultationPath(a))
+                              }}
+                              className="font-bold text-emerald-700 hover:underline"
+                            >
+                              Start →
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {dayAppts.length === 0 && (
+                      <div className="py-8 text-center text-xs text-slate-300 italic">
+                        No appointments
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Add appointment for this day */}
+                  {closureReason(closures, dStr) && <p className="text-xs text-amber-800">Closed: {closureReason(closures, dStr)}</p>}
+                  <button
+                    type="button"
+                    disabled={!!closureReason(closures, dStr)}
+                    onClick={() => handleTimeSlotClick('09:00', dStr)}
+                    className="w-full py-1.5 rounded-lg border border-dashed border-slate-200 text-slate-400 hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50/50 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    + Book
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── 3. MONTH VIEW (Section 7) ───────────────────────────────────── */}
+      {viewMode === 'month' && (
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          {/* Month Weekday Header */}
+          <div className="grid grid-cols-7 bg-slate-900 text-slate-300 font-bold text-[11px] uppercase tracking-wider text-center py-2.5 border-b border-slate-800">
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
+              <div key={day}>{day}</div>
+            ))}
+          </div>
+
+          {/* Month Calendar Grid */}
+          <div className="grid grid-cols-7 border-b border-slate-100 divide-x divide-y divide-slate-100">
+            {monthRange.days.map((dayDate) => {
+              const dStr = localDate(dayDate)
+              const dayAppts = appointmentsByDay[dStr] || []
+              const isTodayCell = isToday(dStr)
+              const isCurrentMonth = dayDate.getMonth() === monthRange.currentMonth
+
+              return (
+                <div
+                  key={dStr}
+                  onClick={() => {
+                    setSelectedDate(dStr)
+                    setViewMode('day')
+                  }}
+                  className={cn(
+                    'min-h-[110px] p-2 flex flex-col justify-between transition-colors cursor-pointer hover:bg-slate-50',
+                    !isCurrentMonth && 'bg-slate-50/50 text-slate-300',
+                    isTodayCell && 'bg-emerald-50/30'
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span
+                      className={cn(
+                        'size-6 rounded-full flex items-center justify-center text-xs font-bold',
+                        isTodayCell
+                          ? 'bg-emerald-600 text-white font-extrabold'
+                          : isCurrentMonth
+                          ? 'text-slate-700'
+                          : 'text-slate-400'
+                      )}
+                    >
+                      {dayDate.getDate()}
+                    </span>
+
+                    {dayAppts.length > 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-900">
+                        {dayAppts.length}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Preview Chips */}
+                  {closureReason(closures, dStr) && <p className="mb-1 text-[10px] font-semibold text-amber-800">Closed: {closureReason(closures, dStr)}</p>}
+                  <div className="space-y-1 overflow-hidden">
+                    {dayAppts.slice(0, 2).map((a) => (
+                      <div
+                        key={a.id}
+                        className="truncate text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200/60"
+                      >
+                        {a.appointment_time?.split('T')[1]?.substring(0, 5)}{' '}
+                        {a.patient?.first_name}
+                      </div>
+                    ))}
+                    {dayAppts.length > 2 && (
+                      <span className="text-[9px] font-bold text-slate-400 block text-right">
+                        +{dayAppts.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
       {/* ── Appointment Details Modal ─────────────────────────────────── */}
       {selectedAppointmentId && (
-        <ModalCard onClose={() => setSelectedAppointmentId(null)} title={t('appointments.detailsTitle')} maxWidth={450}>
+        <ModalCard
+          onClose={() => setSelectedAppointmentId(null)}
+          title={t('appointments.detailsTitle')}
+          maxWidth={480}
+        >
           {loadingDetails ? (
-            <div style={{ padding: '36px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#f1f5f9' }} />
-              <div style={{ height: 12, background: '#f1f5f9', borderRadius: 6, width: 130 }} />
-              <div style={{ height: 8, background: '#f1f5f9', borderRadius: 4, width: 90 }} />
+            <div className="py-10 flex flex-col items-center justify-center gap-3">
+              <span className="size-8 rounded-full border-2 border-emerald-600 border-t-transparent animate-spin" />
+              <p className="text-xs text-slate-400">Loading appointment details...</p>
             </div>
           ) : appointmentDetails ? (
-            <>
-              {/* Patient card */}
-              <div style={{ background: 'linear-gradient(135deg, #f6f8ff, #f2f0ff)', border: '1.5px solid #dde3ff', borderRadius: 15, padding: '16px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
-                <Avatar first={appointmentDetails.patient?.first_name} last={appointmentDetails.patient?.last_name} size={54} fontSize={19} />
-                <div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a' }}>
+            <div className="space-y-4">
+              {/* Patient Card */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex items-center gap-3.5">
+                <Avatar
+                  first={appointmentDetails.patient?.first_name}
+                  last={appointmentDetails.patient?.last_name}
+                  size={48}
+                  fontSize={16}
+                />
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-sm font-bold text-slate-900">
                     {appointmentDetails.patient?.first_name} {appointmentDetails.patient?.last_name}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                    {appointmentDetails.patient?.gender} · DOB: {appointmentDetails.patient?.dob}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#6b7280' }}>
-                    {appointmentDetails.patient?.contact_number}{appointmentDetails.patient?.email ? ` · ${appointmentDetails.patient.email}` : ''}
-                  </div>
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    {appointmentDetails.patient?.gender} · DOB: {appointmentDetails.patient?.dob || 'N/A'}
+                  </p>
+                  <p className="text-xs text-slate-500 font-mono">
+                    📞 {appointmentDetails.patient?.contact_number}
+                  </p>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                {[
-                  { label: t('appointments.doctor'), value: `Dr. ${appointmentDetails.doctor?.username}` },
-                  { label: t('appointments.type'), value: appointmentDetails.appointment_type?.name || t('appointments.general') },
-                ].map(({ label, value }) => (
-                  <div key={label} style={{ background: '#f8fafc', borderRadius: 12, padding: '13px 15px' }}>
-                    <FieldLabel>{label}</FieldLabel>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{value}</div>
-                  </div>
-                ))}
+              {/* Visit Attributes */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <FieldLabel>{t('appointments.doctor')}</FieldLabel>
+                  <p className="font-bold text-slate-900">Dr. {appointmentDetails.doctor?.username}</p>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <FieldLabel>{t('appointments.type')}</FieldLabel>
+                  <p className="font-bold text-slate-900">
+                    {appointmentDetails.appointment_type?.name || t('appointments.general')}
+                  </p>
+                </div>
               </div>
 
-              <div style={{ background: '#f8fafc', borderRadius: 12, padding: '13px 15px', marginBottom: 14 }}>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
                 <FieldLabel>{t('appointments.dateTime')}</FieldLabel>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
-                  {new Date(appointmentDetails.appointment_time).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })}
-                </div>
+                <p className="font-bold text-slate-900">
+                  {new Date(appointmentDetails.appointment_time).toLocaleString('en-GB', {
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </p>
               </div>
 
-              <div style={{ marginBottom: 22 }}>
+              {/* Status Selector */}
+              <div>
                 <FieldLabel>{t('settings.colStatus')}</FieldLabel>
-                <div style={{ position: 'relative' }}>
-                  <select
-                    disabled={isSelectedApptUneditable || false}
-                    value={appointmentDetails.status}
-                    onChange={(e) => {
-                      const updatedData: AppointmentInput = {
-                        patient_id: appointmentDetails.patient_id,
-                        doctor_id: appointmentDetails.doctor_id,
-                        appointment_type_id: appointmentDetails.appointment_type_id ?? appointmentDetails.appointment_type?.id ?? null,
-                        appointment_time: appointmentDetails.appointment_time,
-                        status: e.target.value,
-                      }
-                      updateAppt.mutate({ id: appointmentDetails.id, data: updatedData })
-                    }}
-                    className="appt-input"
-                    style={{ cursor: isSelectedApptUneditable ? 'not-allowed' : 'pointer', opacity: isSelectedApptUneditable ? 0.7 : 1, paddingRight: 40, color: getStatusColor(appointmentDetails.status), fontWeight: 700, fontSize: 14 }}
-                  >
-                    {statuses?.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                  </select>
-                  <svg style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                </div>
+                <select
+                  disabled={isSelectedApptUneditable || false}
+                  value={appointmentDetails.status}
+                  onChange={(e) => {
+                    const updatedData: AppointmentInput = {
+                      patient_id: appointmentDetails.patient_id,
+                      doctor_id: appointmentDetails.doctor_id,
+                      appointment_type_id:
+                        appointmentDetails.appointment_type_id ??
+                        appointmentDetails.appointment_type?.id ??
+                        null,
+                      appointment_time: appointmentDetails.appointment_time,
+                      status: e.target.value,
+                    }
+                    updateAppt.mutate({ id: appointmentDetails.id, data: updatedData })
+                  }}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                >
+                  {statuses?.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, borderTop: '1.5px solid #f0f2f8' }}>
-                <button 
-                  className="danger-btn" 
+              {/* Actions Footer */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                <button
+                  type="button"
                   disabled={isSelectedApptUneditable || false}
-                  style={{ opacity: isSelectedApptUneditable ? 0.5 : 1, cursor: isSelectedApptUneditable ? 'not-allowed' : 'pointer' }}
-                  onClick={() => { if (confirm(t('appointments.deletePrompt'))) { remove.mutate(appointmentDetails.id); setSelectedAppointmentId(null) } }}>
+                  onClick={() => {
+                    if (confirm(t('appointments.deletePrompt'))) {
+                      remove.mutate(appointmentDetails.id)
+                      setSelectedAppointmentId(null)
+                    }
+                  }}
+                  className="text-xs font-bold text-red-600 hover:text-red-700 disabled:opacity-40 cursor-pointer"
+                >
                   {t('common.delete')}
                 </button>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button 
-                    className="ghost-btn" 
-                    style={{ color: '#4361ee', background: '#e0e7ff' }}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
                     onClick={() => {
-                      setBillApptId(appointmentDetails.id)
-                    }}>
-                    Generate Bill
+                      setSelectedAppointmentId(null)
+                      navigate(consultationPath(appointmentDetails))
+                    }}
+                    className="btn btn-primary text-xs px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  >
+                    Start Consultation
                   </button>
-                  <button className="ghost-btn" onClick={() => setSelectedAppointmentId(null)}>{t('common.done')}</button>
+                  <button
+                    type="button"
+                    onClick={() => setBillApptId(appointmentDetails.id)}
+                    className="btn btn-secondary text-xs px-3 py-1.5"
+                  >
+                    Bill
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAppointmentId(null)}
+                    className="btn btn-secondary text-xs px-3 py-1.5"
+                  >
+                    {t('common.done')}
+                  </button>
                 </div>
               </div>
-            </>
+            </div>
           ) : (
-            <p style={{ color: '#ef4444', textAlign: 'center', padding: '32px 0', fontWeight: 500 }}>{t('appointments.couldNotLoad')}</p>
+            <p className="text-center text-xs text-red-600 py-6">{t('appointments.couldNotLoad')}</p>
           )}
         </ModalCard>
       )}
 
       {/* ── Schedule Appointment Modal ────────────────────────────────── */}
       {showForm && (
-        <ModalCard onClose={resetScheduleForm} title={t('appointments.scheduleTitle')} maxWidth={530}>
-          {/* Step 1: Search patient */}
+        <ModalCard onClose={resetScheduleForm} title={t('appointments.scheduleTitle')} maxWidth={520}>
+          {/* Step 1: Search Patient */}
           {!selectedPatient && !showCreatePatient && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
                 <FieldLabel>{t('appointments.searchPatient')}</FieldLabel>
                 <button
                   type="button"
                   onClick={() => setShowCreatePatient(true)}
-                  style={{ fontSize: 11, fontWeight: 700, color: '#4361ee', background: '#eef1ff', border: 'none', cursor: 'pointer', padding: '5px 12px', borderRadius: 8, fontFamily: 'inherit' }}
-                >{t('appointments.newPatientBtn')}</button>
+                  className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer"
+                >
+                  + {t('appointments.newPatientBtn')}
+                </button>
               </div>
+
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('appointments.searchPlaceholder')}
-                className="appt-input"
-                style={{ marginBottom: 8 }}
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
+
               {loadingPatients && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 0' }}>
-                  <div className="pdot" style={{ width: 6, height: 6, borderRadius: '50%', background: '#4361ee' }} />
-                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{t('appointments.searching')}</span>
-                </div>
+                <p className="text-xs text-slate-400 flex items-center gap-2">
+                  <span className="size-2 rounded-full bg-emerald-600 animate-pulse" />
+                  Searching patients...
+                </p>
               )}
+
               {searchQuery && !loadingPatients && patients && (
-                <div className="thin-scroll" style={{ border: '1.5px solid #dde3f0', borderRadius: 13, maxHeight: 210, overflowY: 'auto', boxShadow: '0 4px 18px rgba(0,0,0,0.08)', marginTop: 4 }}>
-                  {patients.length > 0 ? patients.map((p) => (
-                    <div key={p.id} className="pt-row" onClick={() => { setSelectedPatient(p); setForm((f) => ({ ...f, patient_id: p.id })) }} style={{ padding: '12px 16px', borderBottom: '1px solid #f1f4fb', display: 'flex', alignItems: 'center', gap: 11 }}>
-                      <Avatar first={p.first_name} last={p.last_name} size={38} fontSize={13} />
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{p.first_name} {p.last_name}</div>
-                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>📞 {p.contact_number} · {p.gender}, {p.blood_group}</div>
+                <div className="border border-slate-200 rounded-xl max-h-56 overflow-y-auto divide-y divide-slate-100 shadow-2xs">
+                  {patients.length > 0 ? (
+                    patients.map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => {
+                          setSelectedPatient(p)
+                          setForm((f) => ({ ...f, patient_id: p.id }))
+                        }}
+                        className="p-3 hover:bg-emerald-50/50 cursor-pointer flex items-center gap-3 transition-colors"
+                      >
+                        <Avatar first={p.first_name} last={p.last_name} size={34} fontSize={11} />
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">
+                            {p.first_name} {p.last_name}
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            📞 {p.contact_number} · {p.gender}, {p.blood_group}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  )) : (
-                    <div style={{ padding: '28px 20px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 30, marginBottom: 10 }}>🔍</div>
-                      <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600, marginBottom: 14 }}>{t('appointments.noneFound')}</div>
-                      <button type="button" onClick={() => setShowCreatePatient(true)} className="cta-btn" style={{ margin: '0 auto' }}>{t('appointments.createNewPatient')}</button>
+                    ))
+                  ) : (
+                    <div className="p-6 text-center text-xs text-slate-500 space-y-2">
+                      <p>No matching patients found.</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreatePatient(true)}
+                        className="btn btn-primary text-xs px-3 py-1 bg-emerald-600 text-white font-bold"
+                      >
+                        Create New Patient
+                      </button>
                     </div>
                   )}
                 </div>
@@ -748,131 +1186,222 @@ export default function AppointmentsPage() {
             </div>
           )}
 
-          {/* Step 2: Create patient form */}
+          {/* Step 2: Create Patient Form */}
           {showCreatePatient && !selectedPatient && (
-            <div style={{ background: '#f8fafc', borderRadius: 15, border: '1.5px solid #dde3f0', padding: '18px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 13, borderBottom: '1.5px solid #e2e8f0' }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{t('appointments.newPatientDetails')}</div>
-                <button type="button" onClick={() => setShowCreatePatient(false)} style={{ fontSize: 12, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>{t('appointments.backShort')}</button>
-              </div>
-              <form onSubmit={handleCreatePatient}>
-                <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1.5px solid #e2e8f0' }}>
-                  <div style={{ width: '50%', paddingRight: 6 }}>
-                    <FieldLabel>OPD Number <span style={{ color: '#ef4444' }}>*</span></FieldLabel>
-                    <input value={patientForm.opd_number} onChange={(e) => setPatientForm({ ...patientForm, opd_number: e.target.value })} required placeholder="OPD-12345" className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {([
-                    { label: t('appointments.firstNameReq'), key: 'first_name', required: true },
-                    { label: t('appointments.lastNameReq'), key: 'last_name', required: true },
-                    { label: t('appointments.contactNumberReq'), key: 'contact_number', required: true },
-                    { label: t('appointments.dobReq'), key: 'dob', type: 'date', required: true },
-                  ] as { label: string; key: NewPatientTextField; type?: string; required?: boolean }[]).map(({ label, key, type, required }) => (
-                    <div key={key}>
-                      <FieldLabel>{label}</FieldLabel>
-                      <input required={required} type={type || 'text'} value={patientForm[key]} onChange={(e) => setPatientForm({ ...patientForm, [key]: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                    </div>
-                  ))}
-                  <div>
-                    <FieldLabel>{t('appointments.genderReq')}</FieldLabel>
-                    <div style={{ position: 'relative' }}>
-                      <select value={patientForm.gender} onChange={(e) => setPatientForm({ ...patientForm, gender: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px', cursor: 'pointer', paddingRight: 30 }}>
-                        <option value="Male">{t('gender.male')}</option><option value="Female">{t('gender.female')}</option><option value="Other">{t('gender.other')}</option>
-                      </select>
-                      <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                    </div>
-                  </div>
-                  <div>
-                    <FieldLabel>{t('appointments.bloodGroup')}</FieldLabel>
-                    <input value={patientForm.blood_group} onChange={(e) => setPatientForm({ ...patientForm, blood_group: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                  </div>
-                  <div>
-                    <FieldLabel>{t('appointments.email')}</FieldLabel>
-                    <input type="email" value={patientForm.email} onChange={(e) => setPatientForm({ ...patientForm, email: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                  </div>
-                  <div>
-                    <FieldLabel>{t('appointments.emergencyContact')}</FieldLabel>
-                    <input value={patientForm.emergency_contact} onChange={(e) => setPatientForm({ ...patientForm, emergency_contact: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                  </div>
-                  <div>
-                    <FieldLabel>{t('appointments.emergencyPhone')}</FieldLabel>
-                    <input value={patientForm.emergency_phone} onChange={(e) => setPatientForm({ ...patientForm, emergency_phone: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                  </div>
-                  <div>
-                    <FieldLabel>Language</FieldLabel>
-                    <input value={patientForm.language} onChange={(e) => setPatientForm({ ...patientForm, language: e.target.value })} placeholder="e.g. English, Spanish" className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <FieldLabel>{t('appointments.address')}</FieldLabel>
-                    <input value={patientForm.address} onChange={(e) => setPatientForm({ ...patientForm, address: e.target.value })} className="appt-input" style={{ background: 'white', fontSize: 13, padding: '9px 12px' }} />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16, paddingTop: 13, borderTop: '1.5px solid #e2e8f0' }}>
-                  <button type="button" onClick={() => setShowCreatePatient(false)} className="ghost-btn" style={{ fontSize: 12 }}>{t('common.cancel')}</button>
-                  <button type="submit" disabled={createPatientMut.isPending} className="cta-btn" style={{ opacity: createPatientMut.isPending ? 0.65 : 1 }}>
-                    {createPatientMut.isPending ? t('common.saving') : t('patients.savePatient')}
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Step 3: Appointment form */}
-          {selectedPatient && !showCreatePatient && (
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-              {/* Selected patient card */}
-              <div style={{ background: 'linear-gradient(135deg, #f0f4ff, #f5f0ff)', border: '1.5px solid #dde3ff', borderRadius: 15, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 13 }}>
-                <Avatar first={selectedPatient.first_name} last={selectedPatient.last_name} size={44} fontSize={15} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#7c3aed', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 2 }}>{t('appointments.selectedPatient')}</div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#1e1b4b' }}>{selectedPatient.first_name} {selectedPatient.last_name}</div>
-                  <div style={{ fontSize: 12, color: '#6d28d9' }}>{selectedPatient.contact_number}</div>
-                </div>
-                <button type="button" onClick={() => { setSelectedPatient(null); setForm((f) => ({ ...f, patient_id: '' })) }} style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: 'white', border: '1.5px solid #c4b5fd', padding: '6px 13px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit' }}>{t('appointments.change')}</button>
+            <form onSubmit={handleCreatePatient} className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                <span className="text-xs font-bold text-slate-900">Quick Patient Registration</span>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePatient(false)}
+                  className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+                >
+                  Cancel
+                </button>
               </div>
 
               <div>
-                <FieldLabel>{t('appointments.doctor')}</FieldLabel>
-                <div style={{ position: 'relative' }}>
-                  <select required value={form.doctor_id} onChange={(e) => setForm({ ...form, doctor_id: e.target.value })} className="appt-input" style={{ cursor: 'pointer', paddingRight: 40 }}>
-                    <option value="">{t('appointments.selectDoctor')}</option>
-                    {doctors?.map((d) => <option key={d.id} value={d.id}>Dr. {d.username}</option>)}
+                <FieldLabel>OPD / Medical Record Number *</FieldLabel>
+                <input
+                  value={patientForm.opd_number}
+                  onChange={(e) => setPatientForm({ ...patientForm, opd_number: e.target.value })}
+                  required
+                  placeholder="OPD-10293"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                {([
+                  { label: 'First Name *', key: 'first_name', required: true },
+                  { label: 'Last Name *', key: 'last_name', required: true },
+                  { label: 'Phone Number *', key: 'contact_number', required: true },
+                  { label: 'Date of Birth *', key: 'dob', type: 'date', required: true },
+                ] as { label: string; key: NewPatientTextField; type?: string; required?: boolean }[]).map(
+                  ({ label, key, type, required }) => (
+                    <div key={key}>
+                      <FieldLabel>{label}</FieldLabel>
+                      <input
+                        required={required}
+                        type={type || 'text'}
+                        value={patientForm[key]}
+                        onChange={(e) => setPatientForm({ ...patientForm, [key]: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-white"
+                      />
+                    </div>
+                  )
+                )}
+
+                <div>
+                  <FieldLabel>Gender *</FieldLabel>
+                  <select
+                    value={patientForm.gender}
+                    onChange={(e) => setPatientForm({ ...patientForm, gender: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-white"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
                   </select>
-                  <svg style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="13" height="13" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                </div>
+
+                <div>
+                  <FieldLabel>Blood Group</FieldLabel>
+                  <input
+                    value={patientForm.blood_group}
+                    onChange={(e) => setPatientForm({ ...patientForm, blood_group: e.target.value })}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-white"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <FieldLabel>Preferred Language</FieldLabel>
+                  <input
+                    value={patientForm.language}
+                    onChange={(e) => setPatientForm({ ...patientForm, language: e.target.value })}
+                    placeholder="e.g. Telugu, Hindi, English"
+                    list="quick-patient-languages"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-white"
+                  />
+                  <datalist id="quick-patient-languages">
+                    {['Telugu', 'Hindi', 'English', 'Tamil', 'Kannada', 'Malayalam', 'Urdu', 'Marathi', 'Bengali'].map(language => (
+                      <option key={language} value={language} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePatient(false)}
+                  className="btn btn-secondary text-xs"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={createPatientMut.isPending}
+                  className="btn btn-primary text-xs bg-emerald-600 text-white font-bold"
+                >
+                  {createPatientMut.isPending ? 'Saving...' : 'Save & Select'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Step 3: Appointment Booking Form */}
+          {selectedPatient && !showCreatePatient && (
+            <form onSubmit={handleSubmit} className="space-y-3.5">
+              {/* Patient Banner */}
+              <div className="p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Avatar
+                    first={selectedPatient.first_name}
+                    last={selectedPatient.last_name}
+                    size={36}
+                    fontSize={12}
+                  />
+                  <div>
+                    <p className="text-xs font-bold text-slate-900">
+                      {selectedPatient.first_name} {selectedPatient.last_name}
+                    </p>
+                    <p className="text-[11px] text-slate-600">
+                      📞 {selectedPatient.contact_number} · {selectedPatient.gender}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPatient(null)
+                    setForm((f) => ({ ...f, patient_id: '' }))
+                  }}
+                  className="text-xs font-bold text-emerald-800 hover:underline cursor-pointer"
+                >
+                  Change
+                </button>
+              </div>
+
+              {/* Doctor Selection */}
+              <div>
+                <FieldLabel>{t('appointments.doctor')}</FieldLabel>
+                <select
+                  required
+                  value={form.doctor_id}
+                  onChange={(e) => setForm({ ...form, doctor_id: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 bg-white"
+                >
+                  <option value="">{t('appointments.selectDoctor')}</option>
+                  {doctors?.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      Dr. {d.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Type and Status */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <FieldLabel>{t('appointments.appointmentType')}</FieldLabel>
-                  <div style={{ position: 'relative' }}>
-                    <select required value={form.appointment_type_id} onChange={(e) => setForm({ ...form, appointment_type_id: e.target.value })} className="appt-input" style={{ cursor: 'pointer', paddingRight: 30 }}>
-                      <option value="">{t('appointments.selectType')}</option>
-                      {types?.map((t) => <option key={t.id} value={t.id}>{t.name} (₹{t.rate})</option>)}
-                    </select>
-                    <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                  </div>
+                  <select
+                    required
+                    value={form.appointment_type_id}
+                    onChange={(e) => setForm({ ...form, appointment_type_id: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 bg-white"
+                  >
+                    <option value="">{t('appointments.selectType')}</option>
+                    {types?.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} (₹{t.rate})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <FieldLabel>{t('settings.colStatus')}</FieldLabel>
-                  <div style={{ position: 'relative' }}>
-                    <select required value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="appt-input" style={{ cursor: 'pointer', paddingRight: 30, color: getStatusColor(form.status), fontWeight: 700 }}>
-                      {statuses?.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                    </select>
-                    <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} width="12" height="12" viewBox="0 0 20 20" fill="currentColor"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-                  </div>
+                  <select
+                    required
+                    value={form.status}
+                    onChange={(e) => setForm({ ...form, status: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 bg-white"
+                  >
+                    {statuses?.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
+              {/* Date & Time */}
               <div>
                 <FieldLabel>{t('appointments.dateTimeField')}</FieldLabel>
-                <input type="datetime-local" required value={form.appointment_time} onChange={(e) => setForm({ ...form, appointment_time: e.target.value })} className="appt-input" />
+                <input
+                  type="datetime-local"
+                  required
+                  value={form.appointment_time}
+                  onChange={(e) => setForm({ ...form, appointment_time: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 bg-white"
+                />
+                {closureReason(closures, form.appointment_time.slice(0, 10)) && <p className="mt-2 text-xs text-amber-800">Clinic closed: {closureReason(closures, form.appointment_time.slice(0, 10))}. Choose another date.</p>}
+                {bookingError && <p role="alert" className="mt-2 text-xs text-red-700">{bookingError}</p>}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 16, borderTop: '1.5px solid #f0f2f8' }}>
-                <button type="button" onClick={resetScheduleForm} className="ghost-btn">{t('common.cancel')}</button>
-                <button type="submit" disabled={create.isPending} className="cta-btn" style={{ opacity: create.isPending ? 0.65 : 1 }}>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={resetScheduleForm}
+                  className="btn btn-secondary text-xs"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="submit"
+                  disabled={create.isPending || !!closureReason(closures, form.appointment_time.slice(0, 10))}
+                  className="btn btn-primary text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
                   {create.isPending ? t('common.saving') : t('appointments.scheduleAppointment')}
                 </button>
               </div>
@@ -881,11 +1410,12 @@ export default function AppointmentsPage() {
         </ModalCard>
       )}
 
+      {/* ── Billing Modal ─────────────────────────────────────────────── */}
       {billApptId && (
         <InvoiceModal
           patients={patients}
           defaultAppointmentId={billApptId}
-          defaultPatientId={appointments?.find(a => a.id === billApptId)?.patient_id}
+          defaultPatientId={appointments?.find((a) => a.id === billApptId)?.patient_id}
           onClose={() => setBillApptId(null)}
           onSave={async (data) => {
             await createInvoice.mutateAsync(data)
@@ -894,7 +1424,7 @@ export default function AppointmentsPage() {
         />
       )}
 
-      {/* Payment Details Modal */}
+      {/* ── Payment Details Modal ─────────────────────────────────────── */}
       {payingInvoice && (
         <PaymentModal
           invoiceId={payingInvoice}

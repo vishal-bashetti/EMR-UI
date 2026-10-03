@@ -23,3 +23,12 @@ export const loginMessagingProvider = (data: {email: string; password: string; e
 
 export const logoutMessagingProvider = (): Promise<Clinic> =>
   api.delete<Clinic>('/clinic/messaging-auth').then((r) => r.data)
+
+export const syncTemplates = (): Promise<any> =>
+  api.post('/v1/templates/sync').then((r) => r.data)
+
+export const getTemplates = (): Promise<any> =>
+  api.get('/v1/templates/').then((r) => r.data)
+
+export const getMessageBalance = (): Promise<any> =>
+  api.get('/v1/templates/balance').then((r) => r.data)

@@ -29,6 +29,9 @@ export const updateAppointment = (id: number, data: AppointmentInput): Promise<A
 export const updateAppointmentStatus = (id: number, status: string): Promise<Appointment> =>
   api.put<Appointment>(`/appointments/${id}/status`, null, { params: { status } }).then((r) => r.data)
 
+export const startAppointment = (id: number): Promise<Appointment> =>
+  api.post<Appointment>(`/appointments/${id}/start`).then((r) => r.data)
+
 export const deleteAppointment = (id: number): Promise<{ detail: string }> =>
   api.delete<{ detail: string }>(`/appointments/${id}`).then((r) => r.data)
 

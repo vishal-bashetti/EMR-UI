@@ -7,13 +7,14 @@ export default function LanguageSwitcher() {
 
   return (
     <div className="px-3 py-2">
-      <label className="text-slate-500 text-[10px] font-semibold tracking-widest uppercase block mb-1.5">
+      <label htmlFor="workspace-language" className="text-slate-500 text-xs font-medium block mb-1.5">
         {t('language.label')}
       </label>
       <select
+        id="workspace-language"
         value={current}
         onChange={(e) => i18n.changeLanguage(e.target.value)}
-        className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+        className="w-full bg-white text-slate-600 text-sm rounded-lg px-2.5 py-2 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500 cursor-pointer"
       >
         {SUPPORTED_LANGUAGES.map((l) => (
           <option key={l.code} value={l.code}>{l.label}</option>

@@ -3,7 +3,7 @@ import * as api from '../api/messages'
 import type { Message, MessageCreate } from '../types'
 
 export function useInbox(options?: any) {
-  return useQuery({
+  return useQuery<Message[]>({
     queryKey: ['messages', 'inbox'],
     queryFn: api.getInbox,
     ...options,
@@ -11,7 +11,7 @@ export function useInbox(options?: any) {
 }
 
 export function useSentMessages() {
-  return useQuery({
+  return useQuery<Message[]>({
     queryKey: ['messages', 'sent'],
     queryFn: api.getSent,
   })

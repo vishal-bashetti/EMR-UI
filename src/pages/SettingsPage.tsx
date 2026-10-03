@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import {
   useUsers, useCreateUser, useUpdateUser, useDeleteUser, useUploadSignature,
   useRoles, useCreateRole, useUpdateRole, useDeleteRole,
@@ -9,9 +10,11 @@ import {
 import { useAllDrugs, useCreateDrug, useUpdateDrug } from '../hooks/useDrugs'
 import { useLabCatalog, useCreateLabCatalogItem, useUpdateLabCatalogItem, useDeleteLabCatalogItem, useComboCatalog, useCreateComboCatalogItem, useUpdateComboCatalogItem, useDeleteComboCatalogItem } from '../hooks/useLabResults'
 import { useAppointmentStatuses, useCreateAppointmentStatus } from '../hooks/useAppointments'
-import { useClinic, useUpdateClinic, useUploadClinicLogo, useLoginMessagingProvider, useLogoutMessagingProvider } from '../hooks/useSettings'
+import { useClinic, useUpdateClinic, useUploadClinicLogo, useLoginMessagingProvider, useLogoutMessagingProvider, useSyncTemplates, useTemplates, useMessageBalance } from '../hooks/useSettings'
+import { useConnectLIS, useDisconnectLIS, useLISStatus, useCheckLISHealth } from '../hooks/useLISIntegration'
 import { Icons } from '../components/Icons'
 import SignatureCanvas from 'react-signature-canvas'
+import ClinicHolidaysSettings from '../components/ClinicHolidaysSettings'
 import type { DrugInput, Role, ClinicInput, User } from '../types'
 
 const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white'
@@ -84,13 +87,13 @@ function UsersTab() {
       alert("Please draw a signature first!")
       return
     }
-    
+
     try {
       const canvas = sigCanvas.current.getCanvas()
       const dataUrl = canvas.toDataURL('image/png')
       const res = await fetch(dataUrl)
       const blob = await res.blob()
-      
+
       const file = new File([blob], `signature_${signatureUser.id}.png`, { type: 'image/png' })
       uploadSignature.mutate({ id: signatureUser.id, file }, {
         onSuccess: () => setSignatureUser(null)
@@ -614,6 +617,8 @@ function DrugsTab() {
 // ─── Lab Catalog Tab ──────────────────────────────────────────────────────────
 function LabCatalogTab() {
   const { t } = useTranslation()
+  const lisStatus = useLISStatus()
+  const lisConnected = !!lisStatus.data?.connected
   const [showAdd, setShowAdd] = useState(false)
   const [editingItemId, setEditingItemId] = useState<number | null>(null)
   const [form, setForm] = useState({ name: '', description: '', price: '' })
@@ -659,11 +664,12 @@ function LabCatalogTab() {
       <SectionCard
       title={t('settings.labCatalogCount', { count: catalog?.length ?? 0 })}
       action={
-        <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
+        !lisConnected && <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
           {Icons.plus} {t('settings.addTest')}
         </button>
       }
     >
+      {lisConnected && <p className="mx-6 mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">This catalog is provided by the connected LIS. Manage tests and combos in the LIS.</p>}
       {showAdd && (
         <form onSubmit={handleSubmit} className="px-6 py-4 border-b border-slate-100 bg-blue-50/40 grid grid-cols-3 gap-3">
           <div className="col-span-2">
@@ -707,7 +713,7 @@ function LabCatalogTab() {
                     {item.is_active ? t('common.active') : t('common.inactive')}
                   </span>,
                 ]}
-                actions={
+                actions={!lisConnected && (
                   <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => {
@@ -738,7 +744,7 @@ function LabCatalogTab() {
                       {item.is_active ? t('settings.deactivate', 'Deactivate') : t('settings.activate', 'Activate')}
                     </button>
                   </div>
-                }
+                )}
               />
             ))}
               {catalog?.length === 0 && (
@@ -750,9 +756,9 @@ function LabCatalogTab() {
       </SectionCard>
 
       <SectionCard
-        title={`Combo Lab Tests (${comboCatalog?.length ?? 0})`}
-        action={
-          <button onClick={() => setShowAddCombo((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
+      title={`Combo Lab Tests (${comboCatalog?.length ?? 0})`}
+      action={
+          !lisConnected && <button onClick={() => setShowAddCombo((v) => !v)} className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700">
             {Icons.plus} Add Combo Test
           </button>
         }
@@ -811,7 +817,7 @@ function LabCatalogTab() {
                       {item.is_active ? t('common.active') : t('common.inactive')}
                     </span>,
                   ]}
-                  actions={
+                  actions={!lisConnected && (
                     <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => {
@@ -842,7 +848,7 @@ function LabCatalogTab() {
                         {item.is_active ? t('settings.deactivate', 'Deactivate') : t('settings.activate', 'Activate')}
                       </button>
                     </div>
-                  }
+                  )}
                 />
               ))}
               {comboCatalog?.length === 0 && (
@@ -934,7 +940,7 @@ function ApptStatusesTab() {
 }
 
 // ─── Main Settings Page ───────────────────────────────────────────────────────
-type TabKey = 'users' | 'roles' | 'drugs' | 'lab' | 'statuses' | 'clinic'
+type TabKey = 'users' | 'roles' | 'drugs' | 'lab' | 'statuses' | 'clinic' | 'lis' | 'holidays'
 
 const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'users', labelKey: 'settings.tabUsers' },
@@ -942,7 +948,9 @@ const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'drugs', labelKey: 'settings.tabDrugs' },
   { key: 'lab', labelKey: 'settings.tabLab' },
   { key: 'statuses', labelKey: 'settings.tabStatuses' },
+  { key: 'holidays', labelKey: 'Holidays & Weekly Days Off' },
   { key: 'clinic', labelKey: 'settings.tabClinic' },
+  { key: 'lis', labelKey: 'settings.tabLis' },
 ]
 
 export default function SettingsPage() {
@@ -977,7 +985,190 @@ export default function SettingsPage() {
       {activeTab === 'drugs' && <DrugsTab />}
       {activeTab === 'lab' && <LabCatalogTab />}
       {activeTab === 'statuses' && <ApptStatusesTab />}
+      {activeTab === 'holidays' && <ClinicHolidaysSettings />}
       {activeTab === 'clinic' && <ClinicTab />}
+      {activeTab === 'lis' && <LisIntegrationTab />}
+    </div>
+  )
+}
+
+function LisIntegrationTab() {
+  const status = useLISStatus()
+  const connect = useConnectLIS()
+  const disconnect = useDisconnectLIS()
+  const checkHealth = useCheckLISHealth()
+  const [form, setForm] = useState({ host: '', api_key: '' })
+  const [keyValidation, setKeyValidation] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (status.data?.host) setForm(current => ({ ...current, host: status.data!.host! }))
+  }, [status.data?.host])
+
+  const handleApiKeyChange = (value: string) => {
+    const trimmed = value.trim()
+    setForm(current => ({ ...current, api_key: trimmed }))
+    if (!trimmed) {
+      setKeyValidation(null)
+    } else if (trimmed.startsWith('ey') || (trimmed.match(/\./g) || []).length >= 2) {
+      setKeyValidation('JWT token detected. Please paste the dedicated integration API key (starts with "lis_"), not a user JWT token.')
+    } else if (!trimmed.startsWith('lis_')) {
+      setKeyValidation('Invalid key format. An integration API key must start with "lis_".')
+    } else {
+      setKeyValidation(null)
+    }
+  }
+
+  const handleConnect = async (event: FormEvent) => {
+    event.preventDefault()
+    if (keyValidation) return
+    await connect.mutateAsync(form)
+    setForm(current => ({ ...current, api_key: '' }))
+  }
+
+  const renderStatusBadge = () => {
+    if (!status.data) return null
+    const s = status.data.status
+    if (s === 'CONNECTED' || status.data.connected) {
+      return (
+        <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900" role="status">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <strong>Connected to LIS</strong>
+            </div>
+            <button
+              type="button"
+              disabled={checkHealth.isPending}
+              onClick={() => checkHealth.mutate()}
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition-colors disabled:opacity-50"
+            >
+              {checkHealth.isPending ? 'Testing...' : 'Test Connection'}
+            </button>
+          </div>
+          <div className="mt-2 text-xs space-y-1 text-emerald-700">
+            <div><span className="font-semibold">Host:</span> <span className="font-mono">{status.data.host}</span></div>
+            {status.data.account && <div><span className="font-semibold">Account / Clinic:</span> {status.data.account}</div>}
+            {status.data.last_checked && <div><span className="font-semibold">Last Checked:</span> {new Date(status.data.last_checked).toLocaleTimeString()}</div>}
+          </div>
+        </div>
+      )
+    }
+    if (s === 'TEMPORARILY_UNAVAILABLE') {
+      return (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" role="status">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+              <strong>LIS Temporarily Unavailable</strong>
+            </div>
+            <button
+              type="button"
+              disabled={checkHealth.isPending}
+              onClick={() => checkHealth.mutate()}
+              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 transition-colors disabled:opacity-50"
+            >
+              {checkHealth.isPending ? 'Retesting...' : 'Test Connection'}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-amber-700">
+            Configured host is currently unreachable. Network timeout or LIS service down. Existing patient links and orders are safely preserved.
+          </p>
+        </div>
+      )
+    }
+    if (s === 'KEY_REJECTED') {
+      return (
+        <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900" role="status">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+            <strong>Integration Key Rejected</strong>
+          </div>
+          <p className="mt-2 text-xs text-rose-700">
+            Key has been revoked or expired. Please generate a new key in LIS Settings → EMR Integration and update credentials below. Existing patient mappings are safely preserved.
+          </p>
+        </div>
+      )
+    }
+    if (s === 'INCOMPATIBLE') {
+      return (
+        <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900" role="status">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+            <strong>Incompatible LIS Version</strong>
+          </div>
+          <p className="mt-2 text-xs text-rose-700">
+            Connected LIS capabilities do not satisfy minimum requirements for order fulfillment and package catalog.
+          </p>
+        </div>
+      )
+    }
+    return null
+  }
+
+  return (
+    <div className="max-w-3xl space-y-5">
+      <SectionCard title="Connect a Laboratory Information System (LIS)">
+        <p className="text-sm text-slate-500 mb-5">
+          Enter the LIS host and a long-lived integration API key. Create the key in LIS Settings → EMR Integration. The EMR stores it encrypted and loads the lab’s catalog automatically.
+        </p>
+
+        {renderStatusBadge()}
+
+        <form onSubmit={handleConnect} className="space-y-5">
+          <label className="block text-sm font-medium text-slate-700">LIS host
+            <input type="url" required value={form.host} onChange={event => setForm({ ...form, host: event.target.value })} placeholder="https://lis.yourclinic.com" className={`${inputCls} mt-1`} />
+            <span className="block mt-1 text-xs text-slate-400">Enter the LIS website host. The API address is detected automatically.</span>
+          </label>
+          <label className="block text-sm font-medium text-slate-700">LIS integration API key
+            <input
+              type="password"
+              required
+              autoComplete="new-password"
+              value={form.api_key}
+              onChange={event => handleApiKeyChange(event.target.value)}
+              className={`${inputCls} mt-1 font-mono ${keyValidation ? 'border-rose-400 focus:ring-rose-400' : ''}`}
+            />
+            {keyValidation ? (
+              <span className="block mt-1 text-xs text-rose-600 font-medium">{keyValidation}</span>
+            ) : (
+              <span className="block mt-1 text-xs text-slate-400">Must start with <code className="text-slate-600 font-mono">lis_</code>. Revoke or rotate the key from LIS Settings whenever access should change.</span>
+            )}
+          </label>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 text-xs text-slate-500 leading-relaxed">
+            <span className="font-semibold text-slate-700">Safe Rotation & Disconnection:</span> Disconnecting will remove the active connection. Saved external patient mappings and past orders are retained, so reconnecting with a valid key will restore full functionality without re-mapping patients.
+          </div>
+
+          <div className="flex flex-wrap justify-between gap-3 border-t border-slate-100 pt-4">
+            {status.data?.connected ? (
+              <Link to="/labs" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                Continue to Lab Results
+              </Link>
+            ) : <span />}
+            <div className="flex gap-2">
+              {status.data?.configured && (
+                <button
+                  type="button"
+                  disabled={disconnect.isPending}
+                  onClick={() => disconnect.mutate()}
+                  className="rounded-xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                >
+                  {disconnect.isPending ? 'Disconnecting…' : 'Disconnect LIS'}
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={connect.isPending || !!keyValidation}
+                className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {connect.isPending ? 'Verifying connection…' : status.data?.configured ? 'Update Key / Reconnect' : 'Connect LIS'}
+              </button>
+            </div>
+          </div>
+          {connect.isError && <p role="alert" className="text-sm text-rose-600">{(connect.error as any)?.response?.data?.detail || 'Could not connect to LIS. Verify the host, login, and network access.'}</p>}
+          {status.isError && <p role="alert" className="text-sm text-rose-600">Could not load LIS connection status.</p>}
+        </form>
+      </SectionCard>
     </div>
   )
 }
@@ -990,9 +1181,12 @@ function ClinicTab() {
   const uploadLogo = useUploadClinicLogo()
   const loginMessaging = useLoginMessagingProvider()
   const logoutMessaging = useLogoutMessagingProvider()
+  const syncTemplates = useSyncTemplates()
+  const { data: templates } = useTemplates(!!clinic?.is_messaging_authenticated)
+  const { data: balanceData } = useMessageBalance(!!clinic?.is_messaging_authenticated)
 
   const [form, setForm] = useState<ClinicInput | null>(null)
-  
+
   // Messaging auth form state
   const [messagingEmail, setMessagingEmail] = useState('')
   const [messagingPassword, setMessagingPassword] = useState('')
@@ -1027,12 +1221,23 @@ function ClinicTab() {
   }
 
   const setField = (field: keyof ClinicInput) => (e: ChangeEvent<HTMLInputElement>) => {
-    if (form) setForm({ ...form, [field]: e.target.value })
+    setForm(prev => prev ? { ...prev, [field]: e.target.value } : prev)
   }
 
-  const setNestedField = (category: keyof NonNullable<ClinicInput['notification_settings']>, field: string, value: any) => {
-    if (form) {
-      const currentSettings: any = form.notification_settings || {
+  const setNestedField = (category: keyof NonNullable<ClinicInput['notification_settings']> | 'sms_sender_id', field: string, value: any) => {
+    setForm(prev => {
+      if (!prev) return prev;
+      if (category === 'sms_sender_id') {
+        return {
+          ...prev,
+          notification_settings: {
+            ...(prev.notification_settings || {}),
+            sms_sender_id: value
+          }
+        }
+      }
+
+      const currentSettings: any = prev.notification_settings || {
         send_prescription: { whatsapp: false },
         send_followup_reminder: { sms: false, whatsapp: false, days_early: 1 },
         send_lab_report: { whatsapp: false },
@@ -1040,8 +1245,8 @@ function ClinicTab() {
         next_appointment_schedule: { sms: false, whatsapp: false },
         treatment_reminder: { sms: false, whatsapp: false }
       }
-      setForm({
-        ...form,
+      return {
+        ...prev,
         notification_settings: {
           ...currentSettings,
           [category]: {
@@ -1049,8 +1254,8 @@ function ClinicTab() {
             [field]: value
           }
         }
-      })
-    }
+      }
+    })
   }
 
   const Toggle = ({ checked, onChange, label }: { checked: boolean, onChange: (val: boolean) => void, label: string }) => (
@@ -1062,6 +1267,136 @@ function ClinicTab() {
       <span className="text-sm font-medium text-slate-700">{label}</span>
     </label>
   )
+
+  const AVAILABLE_INTERNAL_FIELDS = [
+    { value: 'patient_name', label: 'Patient Name' },
+    { value: 'doctor_name', label: 'Doctor Name' },
+    { value: 'clinic_name', label: 'Clinic Name' },
+    { value: 'appointment_date', label: 'Appointment Date' },
+    { value: 'appointment_time', label: 'Appointment Time' },
+    { value: 'followup_date', label: 'Follow-up Date' },
+    { value: 'prescription_pdf_url', label: 'Prescription PDF Link' },
+    { value: 'lab_report_pdf_url', label: 'Lab Report PDF Link' },
+  ]
+
+  const TemplateSettings = ({ title, category, showSms = true, showWhatsapp = true, extraContent = null }: any) => {
+    const currentSettings = form?.notification_settings?.[category] || {}
+
+    const handleMapChange = (templateVar: string, internalField: string) => {
+      const currentMap = currentSettings.whatsapp_variable_map || {}
+      setNestedField(category, 'whatsapp_variable_map', { ...currentMap, [templateVar]: internalField })
+    }
+
+    let waTemplateVars: string[] = []
+    if (currentSettings.whatsapp_template_id && templates?.whatsapp) {
+      const t = (Array.isArray(templates.whatsapp) ? templates.whatsapp : templates.whatsapp.data || []).find((x: any) => String(x.template_id || x.id) === String(currentSettings.whatsapp_template_id))
+      if (t?.body || t?.content) {
+        const bodyText = t.body || t.content
+        const matches = bodyText.match(/\{\{([^}]+)\}\}/g)
+        if (matches) {
+          waTemplateVars = [...new Set(matches.map((m: string) => m.replace(/[{}]/g, '')))] as string[]
+        }
+      }
+    }
+
+    const smsTemplatesList = Array.isArray(templates?.sms?.data)
+      ? templates.sms.data.flatMap((sender: any) => sender.templates || [])
+      : []
+    const waTemplatesList = Array.isArray(templates?.whatsapp) ? templates.whatsapp : templates?.whatsapp?.data || templates?.whatsapp?.templates || []
+
+    return (
+      <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-700">{title}</span>
+          {extraContent}
+        </div>
+
+        {showSms && (
+          <div className="flex flex-col gap-3 p-3 bg-white border border-slate-200 rounded-lg">
+            <Toggle checked={currentSettings.sms || false} onChange={(v) => setNestedField(category, 'sms', v)} label="Enable SMS" />
+            {currentSettings.sms && (
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">SMS Template</label>
+                  <select className={inputCls} value={currentSettings.sms_template_id || ''} onChange={(e) => {
+                    const val = e.target.value
+                    setNestedField(category, 'sms_template_id', val)
+                    const selectedTmpl = smsTemplatesList.find((t: any) => (t.uuid || String(t.message_id)) === val)
+                    if (selectedTmpl && selectedTmpl.message_id) {
+                      setNestedField(category, 'sms_message_id', String(selectedTmpl.message_id))
+                    }
+                  }}>
+                    <option value="">Select Template...</option>
+                    {smsTemplatesList.map((t: any) => {
+                      const val = t.uuid || String(t.message_id);
+                      const label = t.message ? (t.message.length > 50 ? t.message.substring(0, 50) + '...' : t.message) : val;
+                      return <option key={val} value={val}>{t.message_id ? `${t.message_id} - ` : ''}{label}</option>
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Message ID</label>
+                  <input type="text" className={inputCls} value={currentSettings.sms_message_id || ''} onChange={(e) => setNestedField(category, 'sms_message_id', e.target.value)} placeholder="e.g. 12564" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {showWhatsapp && (
+          <div className="flex flex-col gap-3 p-3 bg-white border border-slate-200 rounded-lg">
+            <Toggle checked={currentSettings.whatsapp || false} onChange={(v) => setNestedField(category, 'whatsapp', v)} label="Enable WhatsApp" />
+            {currentSettings.whatsapp && (
+              <div className="mt-2 flex flex-col gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp Template</label>
+                  <select className={inputCls} value={currentSettings.whatsapp_template_id || ''} onChange={(e) => {
+                    setNestedField(category, 'whatsapp_template_id', e.target.value)
+                    setNestedField(category, 'whatsapp_variable_map', {})
+                  }}>
+                    <option value="">Select Template...</option>
+                    {waTemplatesList.map((t: any) => {
+                      const val = t.template_id || t.id;
+                      return <option key={val} value={val}>{t.name} ({t.language})</option>
+                    })}
+                  </select>
+                </div>
+
+                {currentSettings.whatsapp_template_id && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Media URL (Optional)</label>
+                    <select className={inputCls} value={currentSettings.whatsapp_media_url || ''} onChange={(e) => setNestedField(category, 'whatsapp_media_url', e.target.value)}>
+                      <option value="">None</option>
+                      {AVAILABLE_INTERNAL_FIELDS.map(f => (
+                        <option key={f.value} value={f.value}>{f.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {waTemplateVars.length > 0 && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-col gap-2">
+                    <span className="text-xs font-semibold text-slate-600">Map Template Variables</span>
+                    {waTemplateVars.map((v: string) => (
+                      <div key={v} className="flex items-center gap-3">
+                        <span className="text-xs text-slate-500 w-24 whitespace-nowrap overflow-hidden text-ellipsis font-mono">{`{{${v}}}`}</span>
+                        <select className={`${inputCls} !py-1 !text-xs`} value={currentSettings.whatsapp_variable_map?.[v] || ''} onChange={(e) => handleMapChange(v, e.target.value)}>
+                          <option value="">Select Field...</option>
+                          {AVAILABLE_INTERNAL_FIELDS.map(f => (
+                            <option key={f.value} value={f.value}>{f.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const compressImage = (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
@@ -1127,7 +1462,7 @@ function ClinicTab() {
           {clinic?.logo_path ? (
             <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Clinic Logo" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.style.display = 'none' }} />
           ) : (
-            <div className="text-slate-400 w-10 h-10">{Icons.heartbeat}</div>
+            <img src="/logo.png" alt="Default SKFB logo" className="w-full h-full object-contain" />
           )}
         </div>
         <div>
@@ -1172,32 +1507,54 @@ function ClinicTab() {
             <input type="url" className={inputCls} value={form.app_link} onChange={setField('app_link')} />
           </div>
         </div>
-        
+
         <div className="mt-8 pt-6 border-t border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-sm font-bold text-slate-800">{t('settings.notificationSettings', 'Notification Settings')}</h4>
             {clinic?.is_messaging_authenticated && (
-              <button 
-                type="button" 
-                onClick={async () => {
-                  if (confirm(t('settings.confirmDisconnect', 'Are you sure you want to disconnect the messaging provider?'))) {
-                    await logoutMessaging.mutateAsync()
-                    alert(t('settings.disconnected', 'Messaging provider disconnected'))
-                  }
-                }}
-                disabled={logoutMessaging.isPending}
-                className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                {logoutMessaging.isPending ? t('common.disconnecting', 'Disconnecting...') : t('settings.disconnectProvider', 'Disconnect Provider')}
-              </button>
+              <div className="flex items-center gap-3">
+                {balanceData && (
+                  <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700">
+                    Balance: {balanceData.remaining_messages ?? balanceData.balance ?? balanceData.credits ?? JSON.stringify(balanceData)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await syncTemplates.mutateAsync()
+                      alert('Templates synced successfully')
+                    } catch (err) {
+                      alert('Failed to sync templates')
+                    }
+                  }}
+                  disabled={syncTemplates.isPending}
+                  className="text-xs font-semibold text-primary-600 hover:text-primary-700 bg-primary-50 hover:bg-primary-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {syncTemplates.isPending ? 'Syncing...' : 'Sync Templates'}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (confirm(t('settings.confirmDisconnect', 'Are you sure you want to disconnect the messaging provider?'))) {
+                      await logoutMessaging.mutateAsync()
+                      alert(t('settings.disconnected', 'Messaging provider disconnected'))
+                    }
+                  }}
+                  disabled={logoutMessaging.isPending}
+                  className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {logoutMessaging.isPending ? t('common.disconnecting', 'Disconnecting...') : t('settings.disconnectProvider', 'Disconnect Provider')}
+                </button>
+              </div>
             )}
           </div>
-          
+
           {!clinic?.is_messaging_authenticated ? (
             <div className="p-6 rounded-xl border border-slate-200 bg-slate-50 flex flex-col gap-4 max-w-md">
               <h5 className="text-sm font-semibold text-slate-800">{t('settings.connectProvider', 'Connect Messaging Provider')}</h5>
               <p className="text-xs text-slate-500">{t('settings.connectProviderDesc', 'Please login to enable SMS and WhatsApp notifications.')}</p>
-              
+
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{t('common.email', 'Email')}</label>
@@ -1215,7 +1572,7 @@ function ClinicTab() {
                     <option value="never">Never Expires</option>
                   </select>
                 </div>
-                <button 
+                <button
                   type="button"
                   disabled={loginMessaging.isPending || !messagingEmail || !messagingPassword}
                   onClick={async () => {
@@ -1234,56 +1591,45 @@ function ClinicTab() {
             </div>
           ) : (
             <div className="space-y-6">
-            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-              <span className="text-sm font-semibold text-slate-700">Send Prescription</span>
-              <div className="flex items-center gap-6">
-                <Toggle checked={form.notification_settings?.send_prescription?.whatsapp || false} onChange={(v) => setNestedField('send_prescription', 'whatsapp', v)} label="WhatsApp" />
-              </div>
-            </div>
 
-            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-              <span className="text-sm font-semibold text-slate-700">Followup Reminder</span>
-              <div className="flex flex-wrap items-center gap-6">
-                <Toggle checked={form.notification_settings?.send_followup_reminder?.sms || false} onChange={(v) => setNestedField('send_followup_reminder', 'sms', v)} label="SMS" />
-                <Toggle checked={form.notification_settings?.send_followup_reminder?.whatsapp || false} onChange={(v) => setNestedField('send_followup_reminder', 'whatsapp', v)} label="WhatsApp" />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-slate-600">Days early:</span>
-                  <input type="number" min="1" max="30" className="w-16 border border-slate-300 rounded px-2 py-1 text-sm bg-white" value={form.notification_settings?.send_followup_reminder?.days_early || 1} onChange={(e) => setNestedField('send_followup_reminder', 'days_early', Number(e.target.value))} />
-                </div>
+              <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Global SMS Sender ID</label>
+                <input
+                  type="text"
+                  className={inputCls}
+                  value={form.notification_settings?.sms_sender_id || ''}
+                  onChange={(e) => setNestedField('sms_sender_id', '', e.target.value)}
+                  placeholder="e.g. SKFBMR"
+                />
+                <p className="text-xs text-slate-500 mt-1">Required for DLT SMS routes.</p>
               </div>
-            </div>
 
-            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-              <span className="text-sm font-semibold text-slate-700">Lab Report</span>
-              <div className="flex items-center gap-6">
-                <Toggle checked={form.notification_settings?.send_lab_report?.whatsapp || false} onChange={(v) => setNestedField('send_lab_report', 'whatsapp', v)} label="WhatsApp" />
-              </div>
-            </div>
+              <TemplateSettings title="Appointment Schedule" category="appointment_schedule" />
+              <TemplateSettings title="Send Prescription" category="send_prescription" />
+              <TemplateSettings title="Lab Report" category="send_lab_report" />
 
-            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-              <span className="text-sm font-semibold text-slate-700">Appointment Schedule</span>
-              <div className="flex items-center gap-6">
-                <Toggle checked={form.notification_settings?.appointment_schedule?.sms || false} onChange={(v) => setNestedField('appointment_schedule', 'sms', v)} label="SMS" />
-                <Toggle checked={form.notification_settings?.appointment_schedule?.whatsapp || false} onChange={(v) => setNestedField('appointment_schedule', 'whatsapp', v)} label="WhatsApp" />
-              </div>
-            </div>
+              <TemplateSettings
+                title="Followup Reminder"
+                category="send_followup_reminder"
+                extraContent={
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-600">Days early:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="30"
+                      className="w-16 border border-slate-300 rounded-lg px-2 py-1 text-sm bg-white"
+                      value={form.notification_settings?.send_followup_reminder?.days_early || 1}
+                      onChange={(e) => setNestedField('send_followup_reminder', 'days_early', Number(e.target.value))}
+                    />
+                  </div>
+                }
+              />
 
-            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-              <span className="text-sm font-semibold text-slate-700">Next Appointment Schedule Date</span>
-              <div className="flex items-center gap-6">
-                <Toggle checked={form.notification_settings?.next_appointment_schedule?.sms || false} onChange={(v) => setNestedField('next_appointment_schedule', 'sms', v)} label="SMS" />
-                <Toggle checked={form.notification_settings?.next_appointment_schedule?.whatsapp || false} onChange={(v) => setNestedField('next_appointment_schedule', 'whatsapp', v)} label="WhatsApp" />
-              </div>
-            </div>
+              <TemplateSettings title="Next Appointment Schedule Date" category="next_appointment_schedule" />
+              <TemplateSettings title="Treatment Reminder (If Due)" category="treatment_reminder" />
 
-            <div className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-              <span className="text-sm font-semibold text-slate-700">Treatment Reminder (If Due)</span>
-              <div className="flex items-center gap-6">
-                <Toggle checked={form.notification_settings?.treatment_reminder?.sms || false} onChange={(v) => setNestedField('treatment_reminder', 'sms', v)} label="SMS" />
-                <Toggle checked={form.notification_settings?.treatment_reminder?.whatsapp || false} onChange={(v) => setNestedField('treatment_reminder', 'whatsapp', v)} label="WhatsApp" />
-              </div>
             </div>
-          </div>
           )}
         </div>
 

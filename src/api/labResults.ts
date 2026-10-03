@@ -4,6 +4,7 @@ import type { LabCatalogItem, LabCatalogInput, LabResult, LabResultInput, LabCom
 export const getLabCatalog = (query?: string): Promise<LabCatalogItem[]> =>
   api.get<LabCatalogItem[]>('/lab_results/lab_catalog', { params: query ? { query } : undefined }).then((r) => r.data)
 
+
 export const createLabCatalogItem = (data: LabCatalogInput): Promise<LabCatalogItem> =>
   api.post<LabCatalogItem>('/lab_results/lab_catalog', data).then((r) => r.data)
 
@@ -15,6 +16,7 @@ export const deleteLabCatalogItem = (id: number): Promise<{ detail: string }> =>
 
 export const getComboCatalog = (query?: string): Promise<LabComboCatalogItem[]> =>
   api.get<LabComboCatalogItem[]>('/lab_results/combo_catalog', { params: query ? { query } : undefined }).then((r) => r.data)
+
 
 export const createComboCatalogItem = (data: LabComboCatalogInput): Promise<LabComboCatalogItem> =>
   api.post<LabComboCatalogItem>('/lab_results/combo_catalog', data).then((r) => r.data)

@@ -1,5 +1,5 @@
 import api from './axios'
-import type { VitalConfig, VisitResponse, VisitPayload, Encounter } from '../types'
+import type { VitalConfig, VisitResponse, VisitPayload, VisitAmendment, VisitLabOrderIntent } from '../types'
 
 export const getVitalConfigs = (): Promise<VitalConfig[]> =>
   api.get<VitalConfig[]>('/visits/vitals/config').then((r) => r.data)
@@ -16,11 +16,17 @@ export const getVisitHistory = (patientId: number, limit = 6): Promise<VisitResp
 export const getVisitById = (encounterId: number): Promise<VisitResponse> =>
   api.get<VisitResponse>(`/visits/${encounterId}`).then((r) => r.data)
 
-export const createVisit = (data: VisitPayload): Promise<Encounter> =>
-  api.post<Encounter>('/visits/', data).then((r) => r.data)
+export const createVisit = (data: VisitPayload): Promise<VisitResponse> =>
+  api.post<VisitResponse>('/visits/', data).then((r) => r.data)
 
-export const updateVisit = (id: number, data: VisitPayload): Promise<Encounter> =>
-  api.put<Encounter>(`/visits/${id}`, data).then((r) => r.data)
+export const updateVisit = (id: number, data: VisitPayload): Promise<VisitResponse> =>
+  api.put<VisitResponse>(`/visits/${id}`, data).then((r) => r.data)
+
+export const addVisitAmendment = (id: number, data: { reason: string; note: string }): Promise<VisitAmendment> =>
+  api.post<VisitAmendment>(`/visits/${id}/amendments`, data).then((r) => r.data)
+
+export const submitVisitLabOrder = (id: number): Promise<VisitLabOrderIntent> =>
+  api.post<VisitLabOrderIntent>(`/visits/${id}/lab-order/submit`).then((r) => r.data)
 
 export const getDiagnosisSuggestions = (q: string) =>
   api.get<{ text: string; count: number }[]>('/visits/suggestions/diagnoses', { params: { q } }).then(r => r.data)

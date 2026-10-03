@@ -8,10 +8,11 @@ import { lazy, Suspense } from 'react'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const TodayPage = lazy(() => import('./pages/TodayPage'))
 const PatientsPage = lazy(() => import('./pages/PatientsPage'))
 const AppointmentsPage = lazy(() => import('./pages/AppointmentsPage'))
 const PatientDetailPage = lazy(() => import('./pages/PatientDetailPage'))
-const NewVisitPage = lazy(() => import('./pages/NewVisitPage'))
+const ConsultationEntryPage = lazy(() => import('./pages/ConsultationEntryPage'))
 const BillingPage = lazy(() => import('./pages/BillingPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const LabDashboardPage = lazy(() => import('./pages/LabDashboardPage'))
@@ -36,7 +37,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ToastContainer position="top-right" />
       <BrowserRouter>
-        <Suspense fallback={<div className="flex h-screen items-center justify-center bg-slate-50"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div></div>}>
+        <Suspense fallback={<div role="status" className="flex h-dvh items-center justify-center bg-slate-50 text-sm text-slate-500">Loading your workspace…</div>}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route
@@ -49,11 +50,12 @@ export default function App() {
             >
               <Route index element={<IndexRedirect />} />
               <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="today" element={<TodayPage />} />
               <Route path="patients" element={<PatientsPage />} />
               <Route path="patients/:id" element={<PatientDetailPage />} />
               <Route path="appointments" element={<AppointmentsPage />} />
               <Route path="admin-appointments" element={<AdminAppointmentsPage />} />
-              <Route path="visits/new" element={<NewVisitPage />} />
+              <Route path="visits/new" element={<ConsultationEntryPage />} />
               <Route path="billing" element={<BillingPage />} />
               <Route path="labs" element={<LabDashboardPage />} />
               <Route path="pharmacy" element={<PharmacyPage />} />

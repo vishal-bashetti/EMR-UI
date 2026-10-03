@@ -1,20 +1,28 @@
 import { useState, useEffect } from 'react'
+import { isAxiosError } from 'axios'
 import { usePatients } from '../hooks/usePatients'
-import { 
-  useLabCatalog, 
-  useComboCatalog, 
-  useLabQueue, 
-  useCreateLabResult, 
-  useOrderCombo, 
+import {
+  useLabCatalog,
+  useComboCatalog,
+  useLabQueue,
+  useCreateLabResult,
+  useOrderCombo,
   useUpdateLabResult,
   useLabResults,
   useLabResultsByDate,
   useDeleteLabResult
 } from '../hooks/useLabResults'
+import { useCreateLISOrder, useLISStatus } from '../hooks/useLISIntegration'
 import { useClinic } from '../hooks/useSettings'
 import { useMe } from '../hooks/useUsers'
-import type { LabResult } from '../types'
+import type { LabResult, Patient, LabQueueResponseItem } from '../types'
 import { Icons } from '../components/Icons'
+import { pendingLISOrder, completeLISOrder } from '../utils/lisOrderSubmission'
+
+interface PendingGroup {
+  patient: Patient
+  tests: LabQueueResponseItem[]
+}
 
 const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white'
 
@@ -44,7 +52,7 @@ function isOutOfRange(valStr: string | null, refStr: string | null): boolean {
     const min = parseFloat(refStr.replace(/[^\d.-]/g, ''))
     if (!isNaN(min)) return val <= min
   }
-  
+
   return false
 }
 
@@ -54,7 +62,7 @@ export default function LabDashboardPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
-  
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300)
     return () => clearTimeout(t)
@@ -62,7 +70,7 @@ export default function LabDashboardPage() {
 
   const { data: patients } = usePatients(debouncedSearchQuery || undefined, { enabled: activeTab === 'create' })
   const [selectedPatientId, setSelectedPatientId] = useState<number | null>(null)
-  
+
   const [page, setPage] = useState(1)
   const itemsPerPage = 5
 
@@ -75,7 +83,9 @@ export default function LabDashboardPage() {
 
   const { data: labCatalog } = useLabCatalog(undefined, { enabled: activeTab === 'create' })
   const { data: comboCatalog } = useComboCatalog(undefined, { enabled: activeTab === 'create' })
-  
+  const lisStatus = useLISStatus()
+  const createLISOrder = useCreateLISOrder()
+
   const createLab = useCreateLabResult()
   const orderCombo = useOrderCombo()
 
@@ -92,7 +102,7 @@ export default function LabDashboardPage() {
   // Reports State
   const [reportSearchQuery, setReportSearchQuery] = useState('')
   const [debouncedReportSearchQuery, setDebouncedReportSearchQuery] = useState('')
-  
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedReportSearchQuery(reportSearchQuery), 300)
     return () => clearTimeout(t)
@@ -110,8 +120,44 @@ export default function LabDashboardPage() {
     ? patientLabResults?.filter((r: LabResult) => r.status === 'Completed') || []
     : dateLabResults?.filter(r => r.lab_result.status === 'Completed').map(r => ({ ...r.lab_result, patient: r.patient })) || []
 
+  const isLisConfigured = !!lisStatus.data?.configured
+  const isLisConnected = !!lisStatus.data?.connected
+
   const handleOrderSingle = (catalogId: number, testName: string) => {
     if (!selectedPatientId) return
+    const selected = labCatalog?.find(test => test.id === catalogId)
+    if (isLisConfigured) {
+      if (!isLisConnected) {
+        alert('The laboratory system is configured but temporarily unavailable. Please retry once connection is restored.')
+        return
+      }
+      if (!selected?.lis_code) {
+        alert('This test does not have a mapped LIS code in the catalog.')
+        return
+      }
+      const submissionKey = JSON.stringify(['lis-pending', lisStatus.data?.connection_id || lisStatus.data?.host, selectedPatientId, 'test', selected.lis_code])
+      let sourceId: string
+      try { sourceId = pendingLISOrder(submissionKey) } catch {
+        alert('Could not save this order for safe retry. Enable browser storage before placing the order.')
+        return
+      }
+      createLISOrder.mutate({
+        patient_id: selectedPatientId,
+        test_codes: [selected.lis_code],
+        source_id: sourceId,
+        notes: 'Ordered from EMR Lab Dashboard'
+      }, {
+        onSuccess: () => {
+          completeLISOrder(submissionKey)
+          alert('Test order sent to the connected LIS.')
+        },
+        onError: (err: unknown) => {
+          const detail = isAxiosError(err) ? (err.response?.data as { detail?: string })?.detail : undefined
+          alert(`Could not send order to LIS: ${detail || 'Check the connection and try again.'}`)
+        },
+      })
+      return
+    }
     createLab.mutate({
       patient_id: selectedPatientId,
       catalog_id: catalogId,
@@ -124,16 +170,50 @@ export default function LabDashboardPage() {
 
   const handleOrderCombo = (comboId: number) => {
     if (!selectedPatientId) return
+    const selected = comboCatalog?.find(combo => combo.id === comboId)
+    if (isLisConfigured) {
+      if (!isLisConnected) {
+        alert('The laboratory system is configured but temporarily unavailable. Please retry once connection is restored.')
+        return
+      }
+      if (!selected?.lis_test_codes?.length) {
+        alert('This combo does not have mapped LIS test codes.')
+        return
+      }
+      const submissionKey = JSON.stringify(['lis-pending', lisStatus.data?.connection_id || lisStatus.data?.host, selectedPatientId, 'combo', selected.lis_code, [...selected.lis_test_codes].sort()])
+      let sourceId: string
+      try { sourceId = pendingLISOrder(submissionKey) } catch {
+        alert('Could not save this order for safe retry. Enable browser storage before placing the order.')
+        return
+      }
+      createLISOrder.mutate({
+        patient_id: selectedPatientId,
+        test_codes: selected.lis_test_codes,
+        package_codes: selected.lis_code ? [selected.lis_code] : undefined,
+        source_id: sourceId,
+        notes: `Combo order ${selected.name}`
+      }, {
+        onSuccess: () => {
+          completeLISOrder(submissionKey)
+          alert('Combo order sent to the connected LIS.')
+        },
+        onError: (err: unknown) => {
+          const detail = isAxiosError(err) ? (err.response?.data as { detail?: string })?.detail : undefined
+          alert(`Could not send combo order to LIS: ${detail || 'Check the connection and try again.'}`)
+        },
+      })
+      return
+    }
     orderCombo.mutate({ patient_id: selectedPatientId, combo_id: comboId }, {
       onSuccess: () => alert('Combo ordered successfully!')
     })
   }
 
-  const groupedPending = Object.values(pendingQueue.reduce((acc, curr) => {
+  const groupedPending: PendingGroup[] = Object.values(pendingQueue.reduce((acc, curr) => {
     if (!acc[curr.patient.id]) acc[curr.patient.id] = { patient: curr.patient, tests: [] }
     acc[curr.patient.id].tests.push(curr)
     return acc
-  }, {} as Record<number, { patient: typeof pendingQueue[0]['patient'], tests: typeof pendingQueue }>))
+  }, {} as Record<number, PendingGroup>))
 
   const handleBulkSave = async (patientId: number, tests: typeof pendingQueue) => {
     const testsToSave = tests.filter(t => bulkLabValues[t.lab_result.id]?.result_value)
@@ -146,8 +226,8 @@ export default function LabDashboardPage() {
       const vals = bulkLabValues[t.lab_result.id]
       const catItem = labCatalog?.find(c => c.id === t.lab_result.catalog_id)
       const unit = catItem?.unit || ''
-      const reference_range = catItem && catItem.min_value !== null && catItem.max_value !== null 
-        ? `${catItem.min_value} - ${catItem.max_value}` 
+      const reference_range = catItem && catItem.min_value !== null && catItem.max_value !== null
+        ? `${catItem.min_value} - ${catItem.max_value}`
         : ''
 
       try {
@@ -186,7 +266,7 @@ export default function LabDashboardPage() {
 
   return (
     <div className="p-8 max-w-6xl">
-      <div className="flex items-center justify-between mb-8 print:hidden">
+      <div className="card p-6 bg-gradient-to-r from-white via-emerald-50/20 to-white border border-slate-200/80 shadow-xs flex items-center justify-between mb-8 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Laboratory Dashboard</h1>
           <p className="text-slate-500 text-sm mt-1">Manage lab orders, results, and reports.</p>
@@ -196,19 +276,19 @@ export default function LabDashboardPage() {
       <div className="flex gap-4 border-b border-slate-200 mb-6 print:hidden">
         <button
           onClick={() => setActiveTab('create')}
-          className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'create' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer ${activeTab === 'create' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
         >
           Create Order
         </button>
         <button
           onClick={() => setActiveTab('queue')}
-          className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'queue' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer ${activeTab === 'queue' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
         >
           Fulfillment Queue
         </button>
         <button
           onClick={() => setActiveTab('reports')}
-          className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'reports' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+          className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer ${activeTab === 'reports' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
         >
           Reports & Printing
         </button>
@@ -216,52 +296,52 @@ export default function LabDashboardPage() {
 
       {activeTab === 'create' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:hidden">
-          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
+          <div className="card p-6 shadow-xs">
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+              <div className="size-8 rounded-xl badge-icon-emerald flex items-center justify-center font-bold text-xs shadow-2xs">
                 {Icons.users}
               </div>
               <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">1. Select Patient</h2>
             </div>
-            <input 
-              type="text" 
-              placeholder="Search patients by name..." 
+            <input
+              type="text"
+              placeholder="Search patients by name..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 transition-all bg-slate-50 focus:bg-white"
+              className="w-full border border-border rounded-xl px-4 py-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all bg-slate-50 focus:bg-white"
             />
             <div className="mt-5 space-y-3 max-h-72 overflow-y-auto pr-1 pb-1">
               {paginatedPatients?.map(p => {
                 const isSelected = selectedPatientId === p.id;
                 return (
-                  <div 
-                    key={p.id} 
+                  <div
+                    key={p.id}
                     onClick={() => setSelectedPatientId(p.id)}
-                    className={`group flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all duration-300 ${
-                      isSelected 
-                        ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-500 shadow-sm' 
-                        : 'bg-white border-2 border-slate-100 hover:border-blue-200 hover:shadow-md'
+                    className={`group flex items-center justify-between p-4 rounded-xl cursor-pointer transition-all duration-200 border ${
+                      isSelected
+                        ? 'bg-gradient-to-r from-emerald-50 to-teal-50/50 border-emerald-500 shadow-2xs'
+                        : 'bg-white border-border hover:border-emerald-200 hover:shadow-xs'
                     }`}
                   >
                     <div className="flex items-center gap-4">
-                      <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shadow-sm transition-colors ${
-                        isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-blue-100 group-hover:text-blue-700'
+                      <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm shadow-2xs transition-colors ${
+                        isSelected ? 'bg-gradient-to-br from-emerald-600 to-teal-700 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-emerald-50 group-hover:text-emerald-700'
                       }`}>
                         {p.first_name[0]}{p.last_name[0]}
                       </div>
                       <div>
-                        <p className={`text-sm font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
+                        <p className={`text-sm font-bold ${isSelected ? 'text-primary-900' : 'text-slate-800'}`}>
                           {p.first_name} {p.last_name}
                         </p>
                         <p className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-                          <span className="font-semibold text-slate-600">ID: {p.id}</span> 
+                          <span className="font-semibold text-slate-600">ID: {p.id}</span>
                           <span>•</span>
                           <span>📞 {p.contact_number}</span>
                         </p>
                       </div>
                     </div>
                     {isSelected && (
-                      <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white shadow-sm">
+                      <div className="w-6 h-6 rounded-full bg-primary-600 flex items-center justify-center text-white shadow-sm">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                       </div>
                     )}
@@ -271,7 +351,7 @@ export default function LabDashboardPage() {
             </div>
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-6 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <button 
+                <button
                   disabled={page === 1}
                   onClick={() => setPage(p => p - 1)}
                   className="px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -281,7 +361,7 @@ export default function LabDashboardPage() {
                 <span className="text-xs font-bold text-slate-500 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
                   {page} <span className="text-slate-400 font-medium">/ {totalPages}</span>
                 </span>
-                <button 
+                <button
                   disabled={page === totalPages}
                   onClick={() => setPage(p => p + 1)}
                   className="px-4 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -292,24 +372,24 @@ export default function LabDashboardPage() {
             )}
           </div>
 
-          <div className={`bg-white rounded-2xl border border-slate-100 p-6 shadow-sm transition-opacity duration-300 ${!selectedPatientId ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
+          <div className={`card p-6 shadow-sm transition-opacity duration-300 ${!selectedPatientId ? 'opacity-50 pointer-events-none grayscale-[50%]' : ''}`}>
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+              <div className="w-8 h-8 rounded-full bg-accent-50 flex items-center justify-center text-accent-600">
                 {Icons.flask}
               </div>
               <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">2. Order Tests</h2>
             </div>
-            
+
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Combo Profiles</h3>
             <div className="space-y-3 mb-8">
               {comboCatalog?.map(c => (
-                <div key={c.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-2xl border-2 border-slate-100 hover:border-purple-200 hover:shadow-md transition-all gap-4">
+                <div key={c.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white rounded-lg border border-border hover:border-accent-300 hover:shadow-md transition-all gap-4">
                   <div>
-                    <p className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">{c.name}</p>
+                    <p className="text-sm font-bold text-slate-800 group-hover:text-accent-700 transition-colors">{c.name}</p>
                     <p className="text-xs text-slate-500 mt-1">{c.description}</p>
                   </div>
-                  <button onClick={() => handleOrderCombo(c.id)} className="w-full sm:w-auto text-xs font-bold bg-purple-50 text-purple-700 px-4 py-2 rounded-xl hover:bg-purple-600 hover:text-white transition-all shadow-sm shrink-0">
-                    Order Combo
+                  <button disabled={!!lisStatus.data?.connected && createLISOrder.isPending} onClick={() => handleOrderCombo(c.id)} className="w-full sm:w-auto text-xs font-bold bg-accent-50 text-accent-700 px-4 py-2 rounded-md hover:bg-accent-600 hover:text-white transition-all shadow-sm shrink-0 disabled:opacity-60">
+                    {lisStatus.data?.connected && createLISOrder.isPending ? 'Sending…' : 'Order Combo'}
                   </button>
                 </div>
               ))}
@@ -318,10 +398,10 @@ export default function LabDashboardPage() {
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Individual Tests</h3>
             <div className="space-y-3 max-h-64 overflow-y-auto pr-1 pb-1">
               {labCatalog?.map(c => (
-                <div key={c.id} className="group flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-slate-100 hover:border-blue-200 hover:shadow-md transition-all">
-                  <p className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">{c.name}</p>
-                  <button onClick={() => handleOrderSingle(c.id, c.name)} className="text-xs font-bold bg-blue-50 text-blue-700 px-4 py-2 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm">
-                    Order Single
+                <div key={c.id} className="group flex items-center justify-between p-4 bg-white rounded-lg border border-border hover:border-primary-200 hover:shadow-md transition-all">
+                  <p className="text-sm font-bold text-slate-800 group-hover:text-primary-700 transition-colors">{c.name}</p>
+                  <button disabled={!!lisStatus.data?.connected && createLISOrder.isPending} onClick={() => handleOrderSingle(c.id, c.name)} className="btn btn-primary px-4 py-2 text-xs disabled:opacity-60">
+                    {lisStatus.data?.connected && createLISOrder.isPending ? 'Sending…' : 'Order Single'}
                   </button>
                 </div>
               ))}
@@ -333,20 +413,20 @@ export default function LabDashboardPage() {
       {activeTab === 'queue' && (
         <div className="space-y-6 print:hidden">
           {groupedPending.map(({ patient, tests }) => (
-            <div key={patient.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div key={patient.id} className="card overflow-hidden shadow-sm">
               <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">{patient.first_name} {patient.last_name}</h3>
                   <p className="text-sm text-slate-500">Patient ID: {patient.id} • {tests.length} pending tests</p>
                 </div>
-                {savingProgress?.patientId === patient.id ? (
-                  <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-sm font-semibold border border-blue-100">
+                {savingProgress && savingProgress.patientId === patient.id ? (
+                  <div className="flex items-center gap-2 badge badge-blue px-4 py-2 text-sm">
                     {Icons.clock} Saving {savingProgress.current} of {savingProgress.total}...
                   </div>
                 ) : (
-                  <button 
+                  <button
                     onClick={() => handleBulkSave(patient.id, tests)}
-                    className="bg-emerald-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                    className="btn bg-emerald-600 text-white hover:bg-emerald-700 px-5 py-2"
                   >
                     Save All Results
                   </button>
@@ -368,14 +448,14 @@ export default function LabDashboardPage() {
                       const vals = bulkLabValues[t.lab_result.id] || { result_value: '', unit: '', reference_range: '' }
                       const catItem = labCatalog?.find(c => c.id === t.lab_result.catalog_id)
                       const unit = catItem?.unit || '-'
-                      const refRange = catItem && catItem.min_value !== null && catItem.max_value !== null 
-                        ? `${catItem.min_value} - ${catItem.max_value}` 
+                      const refRange = catItem && catItem.min_value !== null && catItem.max_value !== null
+                        ? `${catItem.min_value} - ${catItem.max_value}`
                         : '-'
 
                       return (
                         <tr key={t.lab_result.id} className="group">
                           <td className="py-4">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                            <span className="badge badge-blue px-2.5 py-1">
                               {t.lab_result.test_name}
                             </span>
                             <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">
@@ -383,9 +463,9 @@ export default function LabDashboardPage() {
                             </p>
                           </td>
                           <td className="py-4 pr-4">
-                            <input 
-                              placeholder="e.g. 15.5" 
-                              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            <input
+                              placeholder="e.g. 15.5"
+                              className="w-full border border-border rounded-md px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
                               value={vals.result_value}
                               onChange={e => setBulkLabValues({...bulkLabValues, [t.lab_result.id]: {...vals, result_value: e.target.value}})}
                             />
@@ -398,7 +478,7 @@ export default function LabDashboardPage() {
                           </td>
                           {isAdmin && (
                             <td className="py-4 text-right">
-                              <button 
+                              <button
                                 onClick={() => {
                                   if (window.confirm('Are you sure you want to delete this ordered test?')) {
                                     deleteLab.mutate(t.lab_result.id)
@@ -421,7 +501,7 @@ export default function LabDashboardPage() {
           ))}
 
           {groupedPending.length === 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 shadow-sm">
+            <div className="card p-12 text-center text-slate-500 shadow-sm">
               <div className="flex justify-center mb-3 opacity-30">{Icons.flask}</div>
               No pending lab orders found across any patients.
             </div>
@@ -431,12 +511,12 @@ export default function LabDashboardPage() {
 
       {activeTab === 'reports' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm print:hidden">
+          <div className="card p-6 shadow-sm print:hidden">
             <div className="flex gap-4 mb-4 relative">
               <div className="flex-1">
-                <input 
-                  type="text" 
-                  placeholder="Search patient to view reports..." 
+                <input
+                  type="text"
+                  placeholder="Search patient to view reports..."
                   value={reportSearchQuery}
                   onChange={e => setReportSearchQuery(e.target.value)}
                   className={inputCls}
@@ -444,8 +524,8 @@ export default function LabDashboardPage() {
                 {reportSearchQuery.length > 0 && reportPatients && reportPatients.length > 0 && !selectedReportPatientId && (
                   <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
                     {reportPatients.slice(0, 10).map(p => (
-                      <button 
-                        key={p.id} 
+                      <button
+                        key={p.id}
                         onClick={() => {
                           setSelectedReportPatientId(p.id)
                           setReportSearchQuery('')
@@ -470,8 +550,8 @@ export default function LabDashboardPage() {
               </div>
             </div>
             {selectedReportPatientId && (
-              <p className="text-sm text-blue-600 font-medium">
-                Viewing reports for Patient ID: {selectedReportPatientId} 
+              <p className="text-sm text-primary-600 font-medium">
+                Viewing reports for Patient ID: {selectedReportPatientId}
                 <button onClick={() => setSelectedReportPatientId(null)} className="ml-3 text-slate-400 hover:text-slate-600 underline">Change Patient</button>
               </p>
             )}
@@ -490,34 +570,32 @@ export default function LabDashboardPage() {
                       dates: {}
                     }
                   }
-                  
+
                   const dateStr = new Date(curr.result_date || curr.ordered_date).toLocaleDateString('en-GB')
                   if (!acc[pId].dates[dateStr]) acc[pId].dates[dateStr] = []
                   acc[pId].dates[dateStr].push(curr)
-                  
+
                   return acc
                 }, {} as Record<number, { patient: any, dates: Record<string, LabResult[]> }>)
               ).map(({ patient, dates }) => (
-                <div 
-                  key={patient.id} 
-                  className={`bg-white rounded-2xl border border-slate-200 p-8 
-                    ${printingPatientId && printingPatientId !== patient.id ? 'print:hidden' : 'print:block'} 
+                <div
+                  key={patient.id}
+                  className={`card p-8
+                    ${printingPatientId && printingPatientId !== patient.id ? 'print:hidden' : 'print:block'}
                     ${printingPatientId === patient.id ? 'print-area' : ''}
                     print:border-none print:shadow-none print:p-0 print:rounded-none`}
                 >
                   {/* ── Print-only: Clinic Letterhead ── */}
                   <div className="hidden print:block mb-6 border-b-2 border-slate-800 pb-4">
                     <div className="flex items-start">
-                      {clinic?.logo_path && (
-                        <div className="shrink-0 mr-5">
-                          <img src={`/api/${clinic.logo_path.replace(/\\/g, '/')}`} alt="Logo" className="w-20 h-20 object-contain" />
-                        </div>
-                      )}
+                      <div className="shrink-0 mr-5">
+                        <img src={clinic?.logo_path ? `/api/${clinic.logo_path.replace(/\\/g, '/')}` : '/logo.png'} alt="Logo" className="w-20 h-20 object-contain" />
+                      </div>
                       <div className="flex-1 text-center">
                         <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-900">{clinic?.name || 'Laboratory'}</h1>
                         {clinic?.address && <p className="text-sm text-slate-600 mt-1">{clinic.address}</p>}
                       </div>
-                      {clinic?.logo_path && <div className="w-20 shrink-0" />}
+                      <div className="w-20 shrink-0" />
                     </div>
                   </div>
 
@@ -527,7 +605,7 @@ export default function LabDashboardPage() {
                   </div>
 
                   {/* ── Patient Info Bar (visible on screen + print) ── */}
-                  <div className="flex justify-between w-full bg-slate-50 p-5 rounded-xl border border-slate-100 mb-6 print:rounded-lg print:border-slate-200">
+                  <div className="flex justify-between w-full bg-slate-50 p-5 rounded-lg border border-border mb-6 print:border-slate-200">
                     <div className="text-left">
                       <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Patient Details</p>
                       <p className="font-bold text-slate-900 text-lg">{patient.first_name} {patient.last_name}</p>
@@ -587,7 +665,7 @@ export default function LabDashboardPage() {
 
                   {/* ── Screen-only: Print Button ── */}
                   <div className="mt-4 text-right print:hidden">
-                    <button onClick={() => handlePrintPatient(patient.id)} className="bg-slate-900 text-white px-5 py-2 rounded-xl font-medium text-sm inline-flex items-center gap-2 hover:bg-slate-800 shadow-sm">
+                    <button onClick={() => handlePrintPatient(patient.id)} className="btn btn-primary px-5 py-2 inline-flex items-center gap-2 text-sm">
                       Print Report
                     </button>
                   </div>

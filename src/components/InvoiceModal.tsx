@@ -43,7 +43,7 @@ export function InvoiceModal({ patients, invoice, defaultPatientId, defaultAppoi
     invoice ? {
       patient_id: String(invoice.patient_id),
       appointment_id: invoice.appointment_id ? String(invoice.appointment_id) : '',
-      items: invoice.items.length
+      items: invoice.items && invoice.items.length
         ? invoice.items.map(i => ({ service_name: i.service_name, quantity: i.quantity, unit_price: i.unit_price }))
         : [{ service_name: '', quantity: 1, unit_price: '' }],
     } : {
