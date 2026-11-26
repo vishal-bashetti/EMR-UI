@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate, Navigate, useLocation } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useQueryClient, useIsMutating } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -14,6 +14,7 @@ import { can } from '../utils/workflow'
 import { GlobalSearchModal } from './GlobalSearchModal'
 import { QuickAddMenu } from './QuickAddMenu'
 import HeaderClock from './HeaderClock'
+import { preloadWorkspacePage } from '../workspacePages'
 
 export function Avatar({ name, size = 'md' }: { name?: string; size?: 'sm' | 'md' }) {
   const initials = name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : '?'
@@ -83,7 +84,7 @@ const navGroups: NavGroupDef[] = [
 export default function WorkspaceLayout() {
   const navigate = useNavigate()
   const { t } = useTranslation()
-  const { data: me } = useMe()
+  const { data: me, isPending: loadingNavigation, isError: navigationFailed, refetch: reloadNavigation } = useMe()
   const { data: clinic } = useClinic()
   const queryClient = useQueryClient()
   const logout = useAuthStore(s => s.logout)
@@ -212,6 +213,17 @@ export default function WorkspaceLayout() {
 
         {/* Sidebar Navigation Groups */}
         <nav aria-label="Main navigation" className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 space-y-5 scrollbar-thin">
+          {loadingNavigation && (
+            <div role="status" className="space-y-3 px-3">
+              <span className="sr-only">Loading navigation…</span>
+              {[1, 2, 3, 4, 5].map(row => <div key={row} aria-hidden="true" className="h-7 rounded-lg bg-emerald-900/40 motion-safe:animate-pulse" />)}
+            </div>
+          )}
+          {navigationFailed && !me && (
+            <button type="button" className="px-3 text-xs text-emerald-200 underline" onClick={() => void reloadNavigation()}>
+              Retry loading navigation
+            </button>
+          )}
           {navGroups.map((group) => {
             const visibleItems = group.items.filter(filterItem)
             if (!visibleItems.length) return null
@@ -234,6 +246,8 @@ export default function WorkspaceLayout() {
                       <NavLink
                         key={to}
                         to={to}
+                        onPointerEnter={() => preloadWorkspacePage(to)}
+                        onFocus={() => preloadWorkspacePage(to)}
                         aria-label={label}
                         title={label}
                         className={cn(
@@ -385,7 +399,9 @@ export default function WorkspaceLayout() {
 
         {/* Dynamic Page Content Viewport */}
         <div className="emr-page-content flex-1 min-h-0 overflow-y-auto print:overflow-visible print:block">
-          <Outlet />
+          <Suspense fallback={<div role="status" className="p-8 text-sm text-slate-500">Loading page…</div>}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
 

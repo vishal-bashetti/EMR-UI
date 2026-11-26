@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Patient, VisitResponse, Clinic, User } from '../types'
 import api from '../api/axios'
 
@@ -7,45 +8,60 @@ interface Props {
   patient: Patient
   clinic?: Clinic
   doctor?: User
-  type: 'prescription' | 'report' | null
-  onReady?: () => void
+  type: 'prescription' | 'report'
+  onAfterPrint: () => void
 }
 
-export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }: Props) {
-  const [signatureUrl, setSignatureUrl] = useState<string | null>(null)
+export function PrintableVisit({ visit, patient, clinic, doctor, type, onAfterPrint }: Props) {
+  const [signatureUrl, setSignatureUrl] = useState<string | null | undefined>()
+  const printDocument = useRef<HTMLDivElement>(null)
+  const finishPrint = useRef(onAfterPrint)
+  useEffect(() => { finishPrint.current = onAfterPrint }, [onAfterPrint])
 
   useEffect(() => {
-    let objectUrl: string | null = null;
+    let active = true
+    let objectUrl: string | null = null
     if (doctor?.id && doctor?.signature_path) {
       api.get(`/users/${doctor.id}/signature/image`, { responseType: 'blob' })
         .then(res => {
+          if (!active) return
           objectUrl = URL.createObjectURL(res.data)
           setSignatureUrl(objectUrl)
-          setTimeout(() => onReady?.(), 100)
         })
-        .catch(err => {
-          console.error('Failed to load signature:', err)
-          setTimeout(() => onReady?.(), 100)
-        })
+        .catch(() => { if (active) setSignatureUrl(null) })
     } else {
-      setTimeout(() => onReady?.(), 100)
+      setSignatureUrl(null)
     }
     return () => {
+      active = false
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [doctor?.id, doctor?.signature_path])
 
-  if (!type) return null
+  useEffect(() => {
+    if (signatureUrl === undefined || !printDocument.current) return
+    let active = true
+    const images = [...printDocument.current.querySelectorAll('img')]
+    const afterPrint = () => finishPrint.current()
+    window.addEventListener('afterprint', afterPrint, { once: true })
+    void Promise.allSettled(images.map(image => image.decode())).then(() => {
+      if (active) window.print()
+    })
+    return () => {
+      active = false
+      window.removeEventListener('afterprint', afterPrint)
+    }
+  }, [signatureUrl])
 
   const dt = new Date(visit.encounter.encounter_date)
   const prescriptionItems = visit.prescriptions?.flatMap((p) => p.items || []) || []
   const c = clinic as any
 
-  return (
-    <div className="print-area hidden print:block bg-white text-slate-900 w-full min-h-screen px-4 py-4">
+  return createPortal(
+    <div ref={printDocument} className="visit-print-document hidden print:block bg-white text-slate-900">
 
       {/* ───── Clinic Letterhead ───── */}
-      <div className="flex items-start border-b-2 border-slate-800 pb-5 mb-6">
+      <div className="flex break-inside-avoid items-start border-b-2 border-slate-800 pb-5 mb-6">
         <div className="shrink-0 mr-5">
           <img src={c?.logo_path ? `/api/${c.logo_path.replace(/\\/g, '/')}` : '/logo.png'} alt="Logo" className="w-20 h-20 object-contain" />
         </div>
@@ -155,9 +171,9 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
       {/* ═══════════════════════════════════════════
           PRESCRIPTION LAYOUT
       ═══════════════════════════════════════════ */}
-      {type === 'prescription' && (
-        <div>
-          <div className="flex items-baseline gap-4 mb-6">
+      {(type === 'prescription' || prescriptionItems.length > 0) && (
+        <div className={type === 'report' ? 'mt-6' : undefined}>
+          <div className="flex items-baseline gap-4 mb-6 break-after-avoid">
             <span className="text-5xl font-serif text-slate-300 italic leading-none">Rx</span>
             <h2 className="text-lg font-bold text-slate-900 uppercase tracking-wide">Prescription</h2>
           </div>
@@ -170,18 +186,20 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
                   <th className="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-xs">Medicine</th>
                   <th className="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-xs">Dosage (M-A-E-N)</th>
                   <th className="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-xs">When</th>
+                  <th className="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-xs">Days</th>
                   <th className="py-3 px-4 font-bold text-slate-700 uppercase tracking-wider text-xs">Notes</th>
                 </tr>
               </thead>
               <tbody>
                 {prescriptionItems.map((p, i) => (
-                  <tr key={i} className="border-b border-slate-100">
+                  <tr key={i} className="border-b border-slate-100 break-inside-avoid">
                     <td className="py-3 px-4 text-slate-400 font-medium">{i + 1}</td>
                     <td className="py-3 px-4 font-bold text-slate-800">{p.name}</td>
                     <td className="py-3 px-4 font-mono text-slate-600 font-medium">
                       {[p.morning, p.afternoon, p.evening, p.night].map(v => v || '0').join(' - ')}
                     </td>
                     <td className="py-3 px-4 text-slate-600">{p.when || 'As directed'}</td>
+                    <td className="py-3 px-4 text-slate-600">{p.duration_days ?? '—'}</td>
                     <td className="py-3 px-4 text-slate-500 text-xs">{p.details || '—'}</td>
                   </tr>
                 ))}
@@ -193,14 +211,14 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
             </div>
           )}
 
-          {visit.encounter.advice && (
+          {type === 'prescription' && visit.encounter.advice && (
             <div className="mt-8 p-4 bg-slate-50 rounded-lg border border-slate-200">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Advice &amp; Instructions</h3>
               <p className="text-slate-800 whitespace-pre-wrap leading-relaxed">{visit.encounter.advice}</p>
             </div>
           )}
 
-          {visit.encounter.followup_date && (
+          {type === 'prescription' && visit.encounter.followup_date && (
             <div className="mt-4 p-4 bg-blue-50/50 rounded-lg border border-blue-100 flex items-center justify-between">
               <h3 className="text-xs font-bold text-blue-600 uppercase tracking-widest">Next Followup</h3>
               <p className="font-bold text-lg text-blue-900">{new Date(visit.encounter.followup_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
@@ -210,7 +228,7 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
       )}
 
       {/* ───── Doctor Signature ───── */}
-      <div className="mt-20 pt-6 flex justify-end">
+      <div className="mt-10 pt-4 flex break-inside-avoid justify-end">
         <div className="text-center w-64">
           {signatureUrl ? (
             <div className="h-16 flex items-end justify-center mb-2">
@@ -231,6 +249,7 @@ export function PrintableVisit({ visit, patient, clinic, doctor, type, onReady }
         {c?.support_email && <span>Email: {c.support_email}</span>}
         {c?.website && <span>Website: {c.website}</span>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

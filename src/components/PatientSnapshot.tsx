@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { getAllergies, getProblems, getMedications } from '../api/clinicalHistory'
 import { Icons } from './Icons'
 import { cn } from '../utils/cn'
+import { AllergyStatus } from './AllergyStatus'
 import type { Patient, VisitResponse } from '../types'
 
 interface PatientSnapshotProps {
@@ -38,7 +39,7 @@ export function PatientSnapshot({
     enabled: !!patientId,
   })
 
-  const allergies = allergiesQuery.data || []
+  const allergies = allergiesQuery.data?.filter(record => record.status === 'Active') || []
   const problems = problemsQuery.data || []
   const medications = medicationsQuery.data || []
 
@@ -189,7 +190,7 @@ export function PatientSnapshot({
           </Link>
         </div>
 
-        {allergies.length > 0 ? (
+        {!allergiesQuery.isPending && !allergiesQuery.isError && allergies.length > 0 ? (
           <div className="space-y-1.5">
             {allergies.map(a => (
               <div
@@ -212,9 +213,8 @@ export function PatientSnapshot({
             ))}
           </div>
         ) : (
-          <div className="p-2.5 rounded-xl gradient-card-emerald border border-emerald-200/80 flex items-center gap-2 text-emerald-900 shadow-2xs">
-            <span className="text-emerald-600 font-bold text-xs">✓</span>
-            <span className="text-xs font-bold">No known drug allergies</span>
+          <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-2 text-amber-900 shadow-2xs">
+            <span className="text-xs font-bold"><AllergyStatus records={allergiesQuery.data} isPending={allergiesQuery.isPending} isError={allergiesQuery.isError} /></span>
           </div>
         )}
       </section>

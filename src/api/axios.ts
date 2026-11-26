@@ -2,11 +2,35 @@ import axios from 'axios'
 import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import { toast } from 'react-toastify'
 import type { TokenResponse } from '../types'
+import useAuthStore from '../store/authStore'
 
 const api: AxiosInstance = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
 })
+
+let refreshInFlight: Promise<string> | null = null
+
+async function refreshAccess(failedAuthorization: unknown): Promise<string> {
+  const refresh = async () => {
+    const current = localStorage.getItem('access_token')
+    // A concurrent request (or tab) may already have rotated this session.
+    if (current && failedAuthorization !== `Bearer ${current}`) return current
+    const token = localStorage.getItem('refresh_token')
+    if (!token) throw new Error('Session expired')
+    const { data } = await axios.post<TokenResponse>('/api/auth/refresh', { refresh_token: token })
+    if (localStorage.getItem('refresh_token') !== token) throw new Error('Session changed during refresh')
+    useAuthStore.getState().setTokens(data.access_token, data.refresh_token)
+    return data.access_token
+  }
+  if (!refreshInFlight) {
+    // Web Locks coordinate rotation across browser tabs on secure origins.
+    refreshInFlight = Promise.resolve(typeof navigator !== 'undefined' && navigator.locks
+      ? navigator.locks.request('emr-session-refresh', refresh)
+      : refresh()).finally(() => { refreshInFlight = null })
+  }
+  return refreshInFlight
+}
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token')
@@ -26,24 +50,20 @@ api.interceptors.response.use(
 
       if (!original._retry) {
         original._retry = true
-        const refresh = localStorage.getItem('refresh_token')
-        if (refresh) {
-          try {
-            const { data } = await axios.post<TokenResponse>('/api/auth/refresh', { refresh_token: refresh })
-            localStorage.setItem('access_token', data.access_token)
-            localStorage.setItem('refresh_token', data.refresh_token)
-            original.headers.Authorization = `Bearer ${data.access_token}`
-            return api(original)
-          } catch {
-            // Refresh failed, fall through to logout
-          }
+        try {
+          const access = await refreshAccess(original.headers.Authorization)
+          original.headers.Authorization = `Bearer ${access}`
+          return api(original)
+        } catch {
+          // Do not log out a newer login when an older request fails.
         }
       }
       
       // Token is missing, expired, or refresh failed
-      localStorage.clear()
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+      const current = localStorage.getItem('access_token')
+      if (!current || original.headers.Authorization === `Bearer ${current}`) {
+        useAuthStore.getState().logout()
+        if (window.location.pathname !== '/login') window.location.href = '/login'
       }
       return Promise.reject(error)
     } else if (error.response?.status === 403) {

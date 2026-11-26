@@ -165,13 +165,13 @@ export default function TodayPage() {
             </button>
           )}
           {/* Primary Action: New Consultation (Section 4) */}
-          <button
+          {clinical && can(me, 'view_patients') && <button
             type="button"
-            onClick={() => navigate('/visits/new')}
+            onClick={() => navigate('/visits/new?action=start')}
             className="btn btn-primary text-xs px-4 shadow-sm shadow-emerald-700/30 font-bold"
           >
             {Icons.plus} New Consultation
-          </button>
+          </button>}
           {/* Secondary Action: Add Walk-in (Section 4) */}
           <button
             type="button"

@@ -2,9 +2,11 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getAppointments } from '../api/appointments'
-import { consultationPath, localDate } from '../utils/workflow'
+import { can, consultationPath, localDate } from '../utils/workflow'
+import { useMe } from '../hooks/useUsers'
 
 export default function ConsultationsPage() {
+  const { data: me } = useMe()
   const [date, setDate] = useState(localDate)
   const [search, setSearch] = useState('')
   const { data: appointments = [], isLoading, isError, refetch } = useQuery({
@@ -33,6 +35,7 @@ export default function ConsultationsPage() {
     <div>
       <h1 className="text-2xl font-bold text-slate-900">Consultations</h1>
       <p className="mt-1 text-sm text-slate-500">Daily consultations in appointment time order, earliest first.</p>
+      {can(me, 'manage_clinical') && can(me, 'view_patients') && <Link to="/visits/new?action=start" className="btn btn-primary mt-3">New Consultation</Link>}
     </div>
     <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
       <label className="text-sm font-medium text-slate-700">Consultation date

@@ -15,6 +15,7 @@ import { useConnectLIS, useDisconnectLIS, useLISStatus, useCheckLISHealth } from
 import { Icons } from '../components/Icons'
 import SignatureCanvas from 'react-signature-canvas'
 import ClinicHolidaysSettings from '../components/ClinicHolidaysSettings'
+import PickupScheduleSettings from '../components/PickupScheduleSettings'
 import type { DrugInput, Role, ClinicInput, User } from '../types'
 
 const inputCls = 'w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white'
@@ -940,7 +941,7 @@ function ApptStatusesTab() {
 }
 
 // ─── Main Settings Page ───────────────────────────────────────────────────────
-type TabKey = 'users' | 'roles' | 'drugs' | 'lab' | 'statuses' | 'clinic' | 'lis' | 'holidays'
+type TabKey = 'users' | 'roles' | 'drugs' | 'lab' | 'statuses' | 'clinic' | 'lis' | 'holidays' | 'pickup'
 
 const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'users', labelKey: 'settings.tabUsers' },
@@ -949,6 +950,7 @@ const TABS: { key: TabKey; labelKey: string }[] = [
   { key: 'lab', labelKey: 'settings.tabLab' },
   { key: 'statuses', labelKey: 'settings.tabStatuses' },
   { key: 'holidays', labelKey: 'Holidays & Weekly Days Off' },
+  { key: 'pickup', labelKey: 'Pickup Slots' },
   { key: 'clinic', labelKey: 'settings.tabClinic' },
   { key: 'lis', labelKey: 'settings.tabLis' },
 ]
@@ -986,6 +988,7 @@ export default function SettingsPage() {
       {activeTab === 'lab' && <LabCatalogTab />}
       {activeTab === 'statuses' && <ApptStatusesTab />}
       {activeTab === 'holidays' && <ClinicHolidaysSettings />}
+      {activeTab === 'pickup' && <PickupScheduleSettings />}
       {activeTab === 'clinic' && <ClinicTab />}
       {activeTab === 'lis' && <LisIntegrationTab />}
     </div>

@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Icons } from './Icons'
 import { cn } from '../utils/cn'
+import { useMe } from '../hooks/useUsers'
+import { can } from '../utils/workflow'
 
 interface QuickAddMenuProps {
   onOpenNewPatient?: () => void
@@ -11,6 +13,8 @@ export function QuickAddMenu({ onOpenNewPatient }: QuickAddMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const { data: me } = useMe()
+  const canCreatePatient = can(me, 'manage_patients') && can(me, 'view_patients')
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -20,7 +24,7 @@ export function QuickAddMenu({ onOpenNewPatient }: QuickAddMenuProps) {
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl+N shortcut for New Patient
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n' && !e.shiftKey) {
+      if (canCreatePatient && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n' && !e.shiftKey) {
         e.preventDefault()
         setIsOpen(false)
         if (onOpenNewPatient) onOpenNewPatient()
@@ -33,11 +37,12 @@ export function QuickAddMenu({ onOpenNewPatient }: QuickAddMenuProps) {
       document.removeEventListener('mousedown', handleClickOutside)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [navigate, onOpenNewPatient])
+  }, [navigate, onOpenNewPatient, canCreatePatient])
 
   const options = [
     {
       label: 'New Patient',
+      permissions: ['manage_patients', 'view_patients'],
       desc: 'Register a new patient record',
       shortcut: 'Ctrl+N',
       icon: Icons.patients,
@@ -50,17 +55,19 @@ export function QuickAddMenu({ onOpenNewPatient }: QuickAddMenuProps) {
     },
     {
       label: 'Add Walk-in',
+      permissions: ['manage_appointments', 'view_appointments', 'view_patients'],
       desc: 'Instant queue check-in for walk-in patient',
       shortcut: '',
       icon: Icons.clock,
       color: 'badge-icon-blue',
       action: () => {
         setIsOpen(false)
-        navigate('/today?action=walkin')
+        navigate('/appointments?action=walkin')
       }
     },
     {
       label: 'New Appointment',
+      permissions: ['manage_appointments', 'view_appointments', 'view_patients'],
       desc: 'Schedule appointment slot in calendar',
       shortcut: '',
       icon: Icons.calendar,
@@ -72,17 +79,19 @@ export function QuickAddMenu({ onOpenNewPatient }: QuickAddMenuProps) {
     },
     {
       label: 'New Prescription',
+      permissions: ['manage_clinical', 'view_clinical', 'view_patients'],
       desc: 'Start consultation & prescribe medication',
-      shortcut: 'Alt+P',
+      shortcut: '',
       icon: Icons.pill,
       color: 'badge-icon-emerald',
       action: () => {
         setIsOpen(false)
-        navigate('/visits/new')
+        navigate('/visits/new?action=start')
       }
     },
     {
       label: 'Lab Order',
+      permissions: ['manage_clinical', 'view_clinical', 'view_patients'],
       desc: 'Order laboratory tests or panels',
       shortcut: '',
       icon: Icons.flask,
@@ -92,7 +101,9 @@ export function QuickAddMenu({ onOpenNewPatient }: QuickAddMenuProps) {
         navigate('/labs?action=new')
       }
     }
-  ]
+  ].filter(option => option.permissions.every(permission => can(me, permission)))
+
+  if (options.length === 0) return null
 
   return (
     <div className="relative" ref={menuRef}>

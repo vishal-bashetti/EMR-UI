@@ -607,7 +607,20 @@ input, select, textarea, button {
     margin: 0mm;
   }
 
-  body * {
+  @page visit-summary {
+    margin: 14mm;
+  }
+
+  body:has(> .visit-print-document) > :not(.visit-print-document) {
+    display: none !important;
+  }
+
+  .visit-print-document {
+    page: visit-summary;
+    overflow-wrap: anywhere;
+  }
+
+  body:not(:has(> .visit-print-document)) * {
     visibility: hidden;
   }
 

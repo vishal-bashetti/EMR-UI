@@ -5,21 +5,22 @@ import 'react-toastify/dist/ReactToastify.css'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout, { IndexRedirect } from './components/Layout'
 import { lazy, Suspense } from 'react'
+import { workspacePages } from './workspacePages'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
-const DashboardPage = lazy(() => import('./pages/DashboardPage'))
-const TodayPage = lazy(() => import('./pages/TodayPage'))
-const PatientsPage = lazy(() => import('./pages/PatientsPage'))
-const AppointmentsPage = lazy(() => import('./pages/AppointmentsPage'))
+const DashboardPage = lazy(workspacePages['/dashboard'])
+const TodayPage = lazy(workspacePages['/today'])
+const PatientsPage = lazy(workspacePages['/patients'])
+const AppointmentsPage = lazy(workspacePages['/appointments'])
 const PatientDetailPage = lazy(() => import('./pages/PatientDetailPage'))
-const ConsultationEntryPage = lazy(() => import('./pages/ConsultationEntryPage'))
-const BillingPage = lazy(() => import('./pages/BillingPage'))
-const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const LabDashboardPage = lazy(() => import('./pages/LabDashboardPage'))
-const PharmacyPage = lazy(() => import('./pages/PharmacyPage'))
-const AdminAppointmentsPage = lazy(() => import('./pages/AdminAppointmentsPage'))
-const ReportsPage = lazy(() => import('./pages/ReportsPage'))
-const MessagesPage = lazy(() => import('./pages/MessagesPage'))
+const ConsultationEntryPage = lazy(workspacePages['/visits/new'])
+const BillingPage = lazy(workspacePages['/billing'])
+const SettingsPage = lazy(workspacePages['/settings'])
+const LabDashboardPage = lazy(workspacePages['/labs'])
+const PharmacyPage = lazy(workspacePages['/pharmacy'])
+const AdminAppointmentsPage = lazy(workspacePages['/admin-appointments'])
+const ReportsPage = lazy(workspacePages['/reports'])
+const MessagesPage = lazy(workspacePages['/messages'])
 
 const queryClient = new QueryClient({
   defaultOptions: {

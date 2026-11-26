@@ -12,11 +12,13 @@ import { useLabCatalog, useLatestLabResults, useComboCatalog, useOrderCombo } fr
 import { useLISStatus } from '../hooks/useLISIntegration'
 import { useDrugs, useCreateDrug } from '../hooks/useDrugs'
 import { useClinicalTemplates, useCreateClinicalTemplate } from '../hooks/useClinicalTemplates'
-import { getLastVisit, getVisitById, getDiagnosisSuggestions, getTreatmentSuggestions, submitVisitLabOrder } from '../api/visits'
+import { getLastVisit, getVisitById, getVisitLabOrder, getDiagnosisSuggestions, getTreatmentSuggestions, submitVisitLabOrder } from '../api/visits'
 import { getAllergies } from '../api/clinicalHistory'
 import { Icons } from '../components/Icons'
+import { AllergyStatus } from '../components/AllergyStatus'
 import { SuggestionInput } from '../components/SuggestionInput'
 import { PrintableVisit } from '../components/PrintableVisit'
+import { LinkedLabReports } from '../components/LinkedLabReports'
 import { AiChartSummary } from '../components/AiChartSummary'
 import { ConsultationContext } from '../components/ConsultationContext'
 import { PatientBrainSidebar } from '../components/PatientBrainSidebar'
@@ -32,7 +34,7 @@ import { ClinicalAiAssistant } from '../components/ClinicalAiAssistant'
 import { consultationPath } from '../utils/workflow'
 import { startAppointment } from '../api/appointments'
 import { cn } from '../utils/cn'
-import type { Drug, PrescriptionInput, VitalConfig, VisitPayload, Encounter, VisitResponse } from '../types'
+import type { Drug, PrescriptionInput, VitalConfig, VisitPayload, VisitResponse, VisitLabOrderIntent } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -407,7 +409,7 @@ function FollowupSection({
 // ─── Section: Visit Overview ──────────────────────────────────────────────────
 
 function OverviewSection({
-  status, reason, notes, quickNotes, advice, statuses,
+  status, reason, notes, quickNotes, advice, statuses, isPreparingPrint,
   onStatus, onReason, onNotes, onQuickNotes, onAdvice, onPrint, onQuickSave
 }: {
   status: string; reason: string; notes: string; quickNotes: string; advice: string
@@ -415,6 +417,7 @@ function OverviewSection({
   onStatus: (v: string) => void; onReason: (v: string) => void
   onNotes: (v: string) => void; onQuickNotes: (v: string) => void; onAdvice: (v: string) => void
   onPrint?: () => void
+  isPreparingPrint?: boolean
   onQuickSave?: () => void
 }) {
   const { t } = useTranslation()
@@ -426,8 +429,8 @@ function OverviewSection({
       title={t('visit.overview')}
       icon={Icons.stethoscope}
       headerAction={!isNoShowOrCancelled && onPrint ? (
-        <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors print:hidden cursor-pointer">
-          {Icons.download} Print Report
+        <button type="button" onClick={onPrint} disabled={isPreparingPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg transition-colors print:hidden cursor-pointer disabled:opacity-60">
+          {Icons.download} {isPreparingPrint ? 'Preparing print…' : 'Print Report'}
         </button>
       ) : undefined}
     >
@@ -675,7 +678,7 @@ function TreatmentsSection({
 // ─── Section: Prescriptions ───────────────────────────────────────────────────
 
 function PrescriptionsSection({
-  prescriptions, drugSearch, showDropdown, drugResults, drugSearchRef, activeAllergies = [],
+  prescriptions, drugSearch, showDropdown, drugResults, drugSearchRef, activeAllergies = [], isPreparingPrint,
   onSearchChange, onSearchFocus, onAddDrug, onCreateDrug, onRemove, onUpdate, onSaveToCatalog, onPrint,
   onOpenMedIntelligence,
 }: {
@@ -690,9 +693,10 @@ function PrescriptionsSection({
   onAddDrug: (name: string) => void
   onCreateDrug: (name: string) => void
   onRemove: (i: number) => void
-  onUpdate: (i: number, field: keyof PrescriptionInput, val: string) => void
+  onUpdate: <K extends keyof PrescriptionInput>(i: number, field: K, val: PrescriptionInput[K]) => void
   onSaveToCatalog: (name: string) => void
   onPrint?: () => void
+  isPreparingPrint?: boolean
   onOpenMedIntelligence?: () => void
 }) {
   const { t } = useTranslation()
@@ -735,8 +739,8 @@ function PrescriptionsSection({
             </button>
           )}
           {onPrint && (
-            <button type="button" onClick={onPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-md transition-colors print:hidden cursor-pointer">
-              {Icons.download} Print Rx
+            <button type="button" onClick={onPrint} disabled={isPreparingPrint} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-md transition-colors print:hidden cursor-pointer disabled:opacity-60">
+              {Icons.download} {isPreparingPrint ? 'Preparing print…' : 'Print Rx'}
             </button>
           )}
         </div>
@@ -812,7 +816,7 @@ function PrescriptionsSection({
         <table className="w-full text-xs">
           <thead className="bg-slate-50">
             <tr>
-              {['Medicine', 'Morning', 'Afternoon', 'Evening', 'Night', 'Quick Preset', 'When', 'Notes', ''].map((h, i) => (
+              {['Medicine', 'Morning', 'Afternoon', 'Evening', 'Night', 'Quick Preset', 'When', 'Days', 'Notes', ''].map((h, i) => (
                 <th key={i} className="text-left px-3 py-2.5 font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
             </tr>
@@ -820,7 +824,7 @@ function PrescriptionsSection({
           <tbody className="divide-y divide-slate-50">
             {prescriptions.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-slate-400">
+                <td colSpan={10} className="px-3 py-6 text-center text-slate-400">
                   {t('visit.prescriptionsHint')}
                 </td>
               </tr>
@@ -882,6 +886,22 @@ function PrescriptionsSection({
                   </td>
                   <td className="px-1.5 py-2.5">
                     <input
+                      aria-label={`Duration in days for ${p.name || 'medicine ' + (i + 1)}`}
+                      inputMode="numeric"
+                      className="w-16 border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white"
+                      value={p.duration_days ?? ''}
+                      onChange={e => {
+                        const value = e.target.value
+                        if (value === '') {
+                          onUpdate(i, 'duration_days', null)
+                        } else if (/^[1-9][0-9]*$/.test(value) && Number(value) <= 2147483647) {
+                          onUpdate(i, 'duration_days', Number(value))
+                        }
+                      }}
+                    />
+                  </td>
+                  <td className="px-1.5 py-2.5">
+                    <input
                       className="w-32 border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary-500 bg-white"
                       value={p.details}
                       onChange={e => onUpdate(i, 'details', e.target.value)}
@@ -908,6 +928,7 @@ function PrescriptionsSection({
 
 function LabSection({
   selectedItems, selectedCombos, labSearch, showDropdown, labCatalog, comboCatalog, labSearchRef, lastLabReports, lisConnected,
+  patientId, lisConfigured, labOrder,
   onSearchChange, onSearchFocus, onAdd, onRemove, onAddCombo, onRemoveCombo
 }: {
   selectedItems: LabItem[]
@@ -919,6 +940,9 @@ function LabSection({
   labSearchRef: React.RefObject<HTMLDivElement | null>
   lastLabReports?: Array<{ id: number; test_name: string; result_value: string | null; unit: string | null; reference_range: string | null; status: string; notes: string | null; ordered_date: string }>
   lisConnected: boolean
+  lisConfigured: boolean
+  patientId: number
+  labOrder: VisitLabOrderIntent | null
   onSearchChange: (v: string) => void
   onSearchFocus: () => void
   onAdd: (item: LabItem) => void
@@ -927,10 +951,27 @@ function LabSection({
   onRemoveCombo: (id: number) => void
 }) {
   const [showHistory, setShowHistory] = useState(false)
+  const orderStatus = {
+    PENDING: 'Queued for LIS',
+    PROCESSING: 'Sending to LIS',
+    ACCEPTED: 'Sent to LIS',
+    FAILED: 'Delivery failed. A retry is scheduled.',
+  }
 
   return (
     <FormSection id="labs" title="Lab Orders" icon={Icons.flask} badge={selectedItems.length + selectedCombos.length || undefined}>
-      {lisConnected && <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">Showing tests and combos from the connected LIS. Orders will be placed directly in that laboratory system.</p>}
+      {labOrder && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+          <p className="font-semibold" aria-live="polite">{orderStatus[labOrder.status]}{labOrder.accession_number && ` · ${labOrder.accession_number}`}</p>
+          <p className="mt-1">{[...labOrder.test_codes, ...labOrder.package_codes].join(', ')}</p>
+        </div>
+      )}
+      {labOrder?.status === 'ACCEPTED' && labOrder.accession_number ? (
+        <LinkedLabReports patientId={patientId} accessionNumber={labOrder.accession_number} />
+      ) : !labOrder && lisConfigured ? (
+        <LinkedLabReports patientId={patientId} />
+      ) : null}
+      {!labOrder && lisConnected && <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">Orders are sent to the connected LIS.</p>}
       {/* Previous lab reports collapsible */}
       {lastLabReports && lastLabReports.length > 0 && (
         <div className="mb-4 border border-emerald-200 bg-emerald-50/40 rounded-xl overflow-hidden">
@@ -940,7 +981,7 @@ function LabSection({
           >
             <div className="flex items-center gap-2">
               <span className="w-5 h-5 flex items-center justify-center text-emerald-600">{Icons.flask}</span>
-              Last Lab Report · {new Date(lastLabReports[0].ordered_date).toLocaleDateString('en-GB')} · {lastLabReports.length} test{lastLabReports.length > 1 ? 's' : ''}
+              EMR lab history · {lastLabReports.length} test{lastLabReports.length > 1 ? 's' : ''}
             </div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`w-3.5 h-3.5 transition-transform ${showHistory ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
           </button>
@@ -968,6 +1009,7 @@ function LabSection({
         </div>
       )}
 
+      {!labOrder && <>
       {/* Lab search */}
       <div ref={labSearchRef} className="relative z-30 mb-4">
         <input
@@ -1044,6 +1086,7 @@ function LabSection({
       ) : (
         <p className="text-sm text-slate-400">{labSearch ? '' : 'Search and select lab tests or combos to order.'}</p>
       )}
+      </>}
     </FormSection>
   )
 }
@@ -1077,10 +1120,7 @@ export default function NewVisitPage() {
   const [isSmartPlanOpen, setIsSmartPlanOpen] = useState(false)
 
   const handlePrint = (type: 'prescription' | 'report') => {
-    setPrintType(type)
-    setTimeout(() => {
-      window.print()
-    }, 200)
+    setPrintType(current => current ?? type)
   }
 
   const { data: patient } = usePatient(patientId)
@@ -1106,6 +1146,22 @@ export default function NewVisitPage() {
     return null
   })
   const [editingVersion, setEditingVersion] = useState<number | null>(null)
+  const [recordedLabOrder, setRecordedLabOrder] = useState<VisitLabOrderIntent | null>(null)
+  const visitLabOrderKey = ['visitLabOrder', editingEncounterId]
+  const { data: refreshedLabOrder } = useQuery({
+    queryKey: visitLabOrderKey,
+    queryFn: ({ signal }) => getVisitLabOrder(editingEncounterId!, signal),
+    enabled: !!editingEncounterId && recordedLabOrder?.encounter_id === editingEncounterId,
+    staleTime: 0,
+    refetchInterval: (query) => query.state.data?.status === 'ACCEPTED' ? false : 10_000,
+  })
+  const labOrderIntent = recordedLabOrder?.encounter_id === editingEncounterId
+    ? refreshedLabOrder ?? recordedLabOrder
+    : null
+  const rememberLabOrder = (intent: VisitLabOrderIntent | null) => {
+    if (intent) queryClient.setQueryData(['visitLabOrder', intent.encounter_id], intent)
+    setRecordedLabOrder(intent)
+  }
 
   const [status, setStatus] = useState('Open')
   const isNoShowOrCancelled = status === 'No Show' || status === 'Cancelled'
@@ -1149,7 +1205,8 @@ export default function NewVisitPage() {
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [isSigned, setIsSigned] = useState(false)
-  const draftSnapshot = JSON.stringify({ reason, notes, quickNotes, advice, followupDays, followupMonths, followupDate, vitals, complaints, diagnoses, treatments, prescriptions, selectedLabs, selectedCombos })
+  const draftFields = { reason, notes, quickNotes, advice, followupDays, followupMonths, followupDate, vitals, complaints, diagnoses, treatments, prescriptions, selectedLabs, selectedCombos }
+  const draftSnapshot = JSON.stringify(draftFields)
   const hasDocumentation = !!(reason || notes || quickNotes || advice || complaints.length || diagnoses.length || treatments.length || prescriptions.length || selectedLabs.length || selectedCombos.length || Object.keys(vitals).length)
   const hasUnsavedChanges = !isSigned && (savedSnapshot === null ? hasDocumentation : savedSnapshot !== draftSnapshot)
   useEffect(() => {
@@ -1169,14 +1226,19 @@ export default function NewVisitPage() {
     setCarryStatus('loading')
     try {
       const data = encId
-        ? await queryClient.fetchQuery({ queryKey: ['visit', encId], queryFn: () => getVisitById(encId) })
+        ? await queryClient.fetchQuery({ queryKey: ['visit', encId], queryFn: () => getVisitById(encId), staleTime: 0 })
         : await queryClient.fetchQuery({ queryKey: ['lastVisit', patientId], queryFn: () => getLastVisit(patientId) })
       const enc = data.encounter
+      if (encId && enc.patient_id !== patientId) {
+        setCarryStatus('error')
+        return
+      }
       if (encId && enc.status === 'Completed') {
         navigate(`/patients/${patientId}`, { replace: true })
         return
       }
       if (encId) {
+        rememberLabOrder(data.lab_order_intent ?? null)
         setAssignedDoctorId(enc.doctor_id)
         setStatus(enc.status || 'Open')
         setEditingVersion(enc.version)
@@ -1193,9 +1255,9 @@ export default function NewVisitPage() {
       setDiagnoses(data.diagnoses.map(d => ({ diagnosis: d.diagnosis, date: d.date || '' })))
       setTreatments(data.treatments.map(tr => ({ treatment: tr.treatment, due_date: tr.due_date || '' })))
       setPrescriptions(data.prescriptions?.flatMap(p => p.items as PrescriptionInput[]) || [])
-      if (encId && enc.draft_orders) {
-        setSelectedLabs(enc.draft_orders.labs || [])
-        setSelectedCombos(enc.draft_orders.packages || [])
+      if (encId) {
+        setSelectedLabs(data.lab_order_intent ? [] : enc.draft_orders?.labs ?? [])
+        setSelectedCombos(data.lab_order_intent ? [] : enc.draft_orders?.packages ?? [])
       }
       setCarryStatus('loaded')
     } catch (e) {
@@ -1253,8 +1315,9 @@ export default function NewVisitPage() {
   const [labSearch, setLabSearch] = useState('')
   const [showLabDropdown, setShowLabDropdown] = useState(false)
   const labSearchRef = useRef<HTMLDivElement>(null)
-  const { data: labCatalog } = useLabCatalog(labSearch)
-  const { data: comboCatalog } = useComboCatalog(labSearch)
+  const canLoadLabCatalog = !labOrderIntent && (!editingEncounterId || editingVersion !== null)
+  const { data: labCatalog } = useLabCatalog(labSearch, { enabled: canLoadLabCatalog })
+  const { data: comboCatalog } = useComboCatalog(labSearch, { enabled: canLoadLabCatalog })
   const orderCombo = useOrderCombo()
   const lisStatus = useLISStatus()
 
@@ -1293,7 +1356,7 @@ export default function NewVisitPage() {
     setShowDrugDropdown(false)
   }
   const removePrescription = (i: number) => setPrescriptions(p => p.filter((_, j) => j !== i))
-  const updatePrescription = (i: number, field: keyof PrescriptionInput, val: string) =>
+  const updatePrescription = <K extends keyof PrescriptionInput>(i: number, field: K, val: PrescriptionInput[K]) =>
     setPrescriptions(p => p.map((item, j) => j === i ? { ...item, [field]: val } : item))
   const handleCreateDrug = async (name: string) => {
     try { await createDrug.mutateAsync({ name, is_active: true }); addDrug(name) }
@@ -1342,9 +1405,9 @@ export default function NewVisitPage() {
     if (finalStatus === 'Completed' && !reason.trim() && !notes.trim() && !complaints.some(item => item.complaint.trim())) {
       setSaveError('Document a reason, complaint or clinical note before completing the visit.'); return
     }
-    const submittedSnapshot = draftSnapshot
     setShowSaveModal(false)
     setSaveError('')
+    setLisOrderError(null)
     const isLisConfigured = !!lisStatus.data?.configured
     const isLisConnected = !!lisStatus.data?.connected
     const lisCodes = [...new Set([...selectedLabs.map(item => item.lis_code).filter((code): code is string => !!code), ...selectedCombos.flatMap(combo => combo.lis_test_codes || [])])]
@@ -1366,14 +1429,14 @@ export default function NewVisitPage() {
       complaints: complaints.filter(c => c.complaint.trim()),
       diagnoses: diagnoses.filter(d => d.diagnosis.trim()),
       treatments: treatments.filter(tr => tr.treatment.trim()),
-      lab_test_catalogs: isLisConfigured ? [] : selectedLabs.map(l => l.id),
-      lis_order: isLisConfigured && (lisCodes.length > 0 || packageCodes.length > 0) ? {
+      lab_test_catalogs: labOrderIntent ? undefined : isLisConfigured ? [] : selectedLabs.map(l => l.id),
+      lis_order: !labOrderIntent && isLisConfigured && (lisCodes.length > 0 || packageCodes.length > 0) ? {
         test_codes: lisCodes,
         package_codes: packageCodes,
         notes: reason || diagnoses.map(item => item.diagnosis).join(', '),
       } : undefined,
       prescriptions: prescriptions.filter(p => p.name.trim()),
-      draft_orders: { labs: selectedLabs, packages: selectedCombos },
+      draft_orders: labOrderIntent ? undefined : { labs: selectedLabs, packages: selectedCombos },
     }
     if (keepOpen) {
       delete (payload as Partial<VisitPayload>).lab_test_catalogs
@@ -1387,16 +1450,20 @@ export default function NewVisitPage() {
       payload.expected_version = editingVersion
     }
     try {
-      let savedVisit: Encounter | undefined
-      if (editingEncounterId) {
-        savedVisit = (await updateVisit.mutateAsync({ id: editingEncounterId, data: payload })).encounter
-      } else {
-        savedVisit = (await createVisit.mutateAsync(payload)).encounter
-        setEditingEncounterId(savedVisit.id)
+      const saved = editingEncounterId
+        ? await updateVisit.mutateAsync({ id: editingEncounterId, data: payload })
+        : await createVisit.mutateAsync(payload)
+      const savedVisit = saved.encounter
+      const savedLabOrder = saved.lab_order_intent ?? labOrderIntent
+      if (!editingEncounterId) setEditingEncounterId(savedVisit.id)
+      if (savedLabOrder) {
+        rememberLabOrder(savedLabOrder)
+        setSelectedLabs([])
+        setSelectedCombos([])
       }
       setEditingVersion(savedVisit.version)
       setStatus(finalStatus)
-      setSavedSnapshot(submittedSnapshot)
+      setSavedSnapshot(savedLabOrder ? JSON.stringify({ ...draftFields, selectedLabs: [], selectedCombos: [] }) : draftSnapshot)
       setSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
       setIsSigned(finalStatus === 'Completed')
       if (keepOpen) {
@@ -1406,16 +1473,16 @@ export default function NewVisitPage() {
         return
       }
 
-      if (isLisConfigured) {
-        if (lisCodes.length > 0 || packageCodes.length > 0) {
-          const sourceId = savedVisit?.id ?? editingEncounterId
-          if (!sourceId) throw new Error('The visit was saved, but could not identify it for LIS order submission. Please contact support before retrying.')
+      if (isLisConfigured || savedLabOrder) {
+        if (payload.lis_order && savedLabOrder?.status !== 'ACCEPTED') {
+          const sourceId = savedVisit.id
           if (!isLisConnected) {
             setLisOrderError(`Visit #${sourceId} saved. The laboratory request is queued and will retry automatically when the LIS is available.`)
             return
           }
           try {
             const result = await submitVisitLabOrder(sourceId)
+            rememberLabOrder(result)
             if (result.status !== 'ACCEPTED') {
               setLisOrderError(`Visit #${sourceId} saved. The laboratory request is ${result.status.toLowerCase()} and will retry automatically. ${result.last_error || ''}`)
               return
@@ -1441,8 +1508,8 @@ export default function NewVisitPage() {
     setLisOrderError(null)
     try {
       const result = await submitVisitLabOrder(editingEncounterId)
-      if (result.status === 'ACCEPTED') navigate(`/patients/${patientId}`)
-      else setLisOrderError(`The laboratory request is ${result.status.toLowerCase()} and will retry automatically. ${result.last_error || ''}`)
+      rememberLabOrder(result)
+      if (result.status !== 'ACCEPTED') setLisOrderError(`The laboratory request is ${result.status.toLowerCase()} and will retry automatically. ${result.last_error || ''}`)
     } catch (e) {
       setLisOrderError(`LIS lab order retry failed: ${isAxiosError(e) ? ((e.response?.data as { detail?: string })?.detail || e.message) : 'Unknown error'}`)
     } finally {
@@ -1585,7 +1652,7 @@ export default function NewVisitPage() {
     labs: selectedLabs.length,
   }
 
-  const visitDataForPrinting = patient ? ({
+  const visitDataForPrinting = printType && patient ? ({
     encounter: {
       encounter_date: new Date().toISOString(),
       quick_notes: quickNotes,
@@ -1734,11 +1801,8 @@ export default function NewVisitPage() {
             </div>
           )}
           {!isNoShowOrCancelled && (
-            <div role="status" className="mx-4 sm:mx-6 mt-3 max-w-6xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              {allergyRecords.isLoading ? 'Checking allergy records…'
-                : allergyRecords.isError ? 'Allergy records unavailable. Confirm directly before prescribing.'
-                : activeAllergies.length ? `Active allergies: ${activeAllergies.map(item => item.allergen).join(', ')}. Review before prescribing.`
-                : 'Allergy status has not been explicitly reviewed. Confirm before prescribing.'}
+            <div className="mx-4 sm:mx-6 mt-3 max-w-6xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <AllergyStatus records={allergyRecords.data} isPending={allergyRecords.isPending} isError={allergyRecords.isError} />
             </div>
           )}
 
@@ -1763,7 +1827,8 @@ export default function NewVisitPage() {
             statuses={statuses}
             onStatus={v => { setStatus(v); setSaveError('') }} onReason={setReason} onNotes={setNotes}
             onQuickNotes={setQuickNotes} onAdvice={setAdvice}
-            onPrint={() => handlePrint('report')}
+            onPrint={patient ? () => handlePrint('report') : undefined}
+            isPreparingPrint={!!printType}
             onQuickSave={() => performSave(status)}
           />
 
@@ -1815,7 +1880,8 @@ export default function NewVisitPage() {
                 onRemove={removePrescription}
                 onUpdate={updatePrescription}
                 onSaveToCatalog={handleSaveToCatalog}
-                onPrint={() => handlePrint('prescription')}
+                onPrint={patient ? () => handlePrint('prescription') : undefined}
+                isPreparingPrint={!!printType}
                 onOpenMedIntelligence={() => setIsMedIntelOpen(true)}
               />
 
@@ -1828,6 +1894,9 @@ export default function NewVisitPage() {
                 comboCatalog={comboCatalog as LabItem[] | undefined}
                 labSearchRef={labSearchRef}
                 lisConnected={!!lisStatus.data?.connected}
+                lisConfigured={!!lisStatus.data?.configured}
+                labOrder={labOrderIntent}
+                patientId={patientId}
                 lastLabReports={lastLabReports}
                 onSearchChange={v => { setLabSearch(v); setShowLabDropdown(true) }}
                 onSearchFocus={() => setShowLabDropdown(true)}
@@ -1854,7 +1923,7 @@ export default function NewVisitPage() {
                 vitals: (vitalConfigs || []).filter(item => vitals[item.id]).map(item => `${item.name}: ${vitals[item.id]}`),
                 diagnoses: diagnoses.filter(item => item.diagnosis.trim()).map(item => item.diagnosis),
                 treatments: treatments.filter(item => item.treatment.trim()).map(item => item.treatment),
-                prescriptions: prescriptions.filter(item => item.name.trim()).map(item => [item.name, item.morning && `Morning: ${item.morning}`, item.afternoon && `Afternoon: ${item.afternoon}`, item.evening && `Evening: ${item.evening}`, item.night && `Night: ${item.night}`, item.when, item.details].filter(Boolean).join(' · ')),
+                prescriptions: prescriptions.filter(item => item.name.trim()).map(item => [item.name, item.morning && `Morning: ${item.morning}`, item.afternoon && `Afternoon: ${item.afternoon}`, item.evening && `Evening: ${item.evening}`, item.night && `Night: ${item.night}`, item.when, item.duration_days && `Days: ${item.duration_days}`, item.details].filter(Boolean).join(' · ')),
                 followup: followupDate || (followupDays ? `Follow-up in ${followupDays} days` : followupMonths ? `Follow-up in ${followupMonths} months` : ''),
               }} onApply={text => setNotes(existing => [existing.trim(), text].filter(Boolean).join('\n\n'))} />
             </>
@@ -1866,7 +1935,7 @@ export default function NewVisitPage() {
             </div>
           )}
 
-          {lisOrderError && (
+          {lisOrderError && labOrderIntent?.status !== 'ACCEPTED' && (
             <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 text-sm text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <p className="font-semibold text-amber-800">Visit Saved with Lab Order Warning</p>
@@ -2014,7 +2083,7 @@ export default function NewVisitPage() {
             <AlertDialog.Title className="text-xl font-semibold text-slate-900 text-balance">Review & complete consultation</AlertDialog.Title>
             <AlertDialog.Description className="mt-2 text-sm text-slate-500 text-pretty">Confirm the documentation for {patientName}. Signing locks this visit; later corrections are recorded as amendments.</AlertDialog.Description>
             <dl className="my-5 grid grid-cols-2 gap-3 text-sm">{[['Complaints', complaints.filter(item => item.complaint.trim()).length], ['Diagnoses', diagnoses.filter(item => item.diagnosis.trim()).length], ['Prescription lines', prescriptions.filter(item => item.name.trim()).length], ['Lab selections', selectedLabs.length + selectedCombos.length]].map(([label, count]) => <div key={String(label)} className="rounded-lg bg-slate-50 p-3"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold text-slate-800 tabular-nums">{count}</dd></div>)}</dl>
-            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3">{activeAllergies.length ? `Recorded allergies: ${activeAllergies.map(item => item.allergen).join(', ')}` : 'No explicit allergy review is recorded. Confirm allergy status before prescribing.'}</p>
+            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg p-3"><AllergyStatus records={allergyRecords.data} isPending={allergyRecords.isPending} isError={allergyRecords.isError} /></p>
             {saveError && <p role="alert" className="mt-3 text-sm text-red-700">{saveError}</p>}
             <div className="flex flex-col gap-3">
               <button disabled={isPending || isSigned || me?.id !== doctorId} onClick={() => performSave('Completed')} className="btn btn-primary w-full py-2.5">
@@ -2031,13 +2100,14 @@ export default function NewVisitPage() {
       </AlertDialog.Root>
 
       {/* Hidden Print Layout */}
-      {visitDataForPrinting && patient && (
+      {printType && visitDataForPrinting && patient && (
         <PrintableVisit
           visit={visitDataForPrinting}
           patient={patient}
           clinic={clinic}
           doctor={me}
           type={printType}
+          onAfterPrint={() => setPrintType(null)}
         />
       )}
 

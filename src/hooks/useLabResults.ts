@@ -13,6 +13,7 @@ import {
   getLabResults,
   getLabResultsHistory,
   getLatestLabResults,
+  getRecentLabFindings,
   createLabResult,
   updateLabResult,
   deleteLabResult,
@@ -173,7 +174,10 @@ export const useCreateLabResult = () => {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: createLabResult,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['labQueue'] }),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['labQueue'] })
+      qc.invalidateQueries({ queryKey: ['recentLabFindings', result.patient_id] })
+    },
   })
 }
 
@@ -209,6 +213,15 @@ export const useLabResults = (patientId?: number, options?: any) =>
     enabled: !!patientId && (options?.enabled ?? true),
   })
 
+export const useRecentLabFindings = (patientId: number) =>
+  useQuery({
+    queryKey: ['recentLabFindings', patientId],
+    queryFn: ({ signal }) => getRecentLabFindings(patientId, signal),
+    enabled: !!patientId,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+
 export const useUpdateLabResult = () => {
   const qc = useQueryClient()
   return useMutation({
@@ -217,9 +230,11 @@ export const useUpdateLabResult = () => {
       if (variables.data.patient_id) {
         qc.invalidateQueries({ queryKey: ['labResults', variables.data.patient_id] })
         qc.invalidateQueries({ queryKey: ['latestLabResults', variables.data.patient_id] })
+        qc.invalidateQueries({ queryKey: ['recentLabFindings', variables.data.patient_id] })
         qc.invalidateQueries({ queryKey: ['labResultsHistory', variables.data.patient_id] })
       } else {
         qc.invalidateQueries({ queryKey: ['labResults'] })
+        qc.invalidateQueries({ queryKey: ['recentLabFindings'] })
       }
       qc.invalidateQueries({ queryKey: ['labQueue'] })
       qc.invalidateQueries({ queryKey: ['invoices'] })
@@ -233,6 +248,7 @@ export const useDeleteLabResult = () => {
     mutationFn: deleteLabResult,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['labResults'] })
+      qc.invalidateQueries({ queryKey: ['recentLabFindings'] })
       qc.invalidateQueries({ queryKey: ['labQueue'] })
     },
   })

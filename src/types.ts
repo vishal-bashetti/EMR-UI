@@ -246,6 +246,7 @@ export interface Treatment {
 }
 
 export interface PrescriptionInput {
+  duration_days?: number | null
   name: string
   morning: string
   afternoon: string
@@ -277,6 +278,7 @@ export interface Encounter {
 }
 
 export interface PrescriptionItem {
+  duration_days?: number | null
   id?: number
   prescription_id?: number
   molecule?: string
@@ -348,7 +350,7 @@ export interface VisitPayload {
   complaints: Complaint[]
   diagnoses: Diagnosis[]
   treatments: Treatment[]
-  lab_test_catalogs: number[]
+  lab_test_catalogs?: number[]
   prescriptions: PrescriptionInput[]
   followup_date?: string
   followup_days?: number
@@ -550,7 +552,7 @@ export interface VisitPayload {
   complaints: Complaint[]
   diagnoses: Diagnosis[]
   treatments: Treatment[]
-  lab_test_catalogs: number[]
+  lab_test_catalogs?: number[]
   prescriptions: PrescriptionInput[]
   followup_date?: string
   followup_days?: number

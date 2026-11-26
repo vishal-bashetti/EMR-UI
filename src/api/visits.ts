@@ -28,6 +28,9 @@ export const addVisitAmendment = (id: number, data: { reason: string; note: stri
 export const submitVisitLabOrder = (id: number): Promise<VisitLabOrderIntent> =>
   api.post<VisitLabOrderIntent>(`/visits/${id}/lab-order/submit`).then((r) => r.data)
 
+export const getVisitLabOrder = (id: number, signal?: AbortSignal): Promise<VisitLabOrderIntent> =>
+  api.get<VisitLabOrderIntent>(`/visits/${id}/lab-order`, { signal }).then((r) => r.data)
+
 export const getDiagnosisSuggestions = (q: string) =>
   api.get<{ text: string; count: number }[]>('/visits/suggestions/diagnoses', { params: { q } }).then(r => r.data)
 

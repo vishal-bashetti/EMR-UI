@@ -32,6 +32,7 @@ export default function LoginPage() {
       const me = await getMe()
       setUser(me)
       queryClient.clear()
+      queryClient.setQueryData(['me'], me)
       navigate('/')
     } catch (err) {
       const detail = isAxiosError(err)

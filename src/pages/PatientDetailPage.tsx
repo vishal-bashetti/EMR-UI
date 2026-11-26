@@ -4,10 +4,11 @@ import { useTranslation } from 'react-i18next'
 import { useQueryClient, useQuery } from '@tanstack/react-query'
 import { usePatient, useUpdatePatient } from '../hooks/usePatients'
 import { useVisitHistory } from '../hooks/useVisits'
-import { useLatestLabResults, useUpdateLabResult } from '../hooks/useLabResults'
+import { useLatestLabResults, useRecentLabFindings, useUpdateLabResult } from '../hooks/useLabResults'
 import { useClinic } from '../hooks/useSettings'
 import { PrintableVisit } from '../components/PrintableVisit'
 import { LabTestGraph } from '../components/LabTestGraph'
+import { LinkedLabReports } from '../components/LinkedLabReports'
 import { useInvoices, useUpdateInvoiceStatus } from '../hooks/useBilling'
 import { useMe } from '../hooks/useUsers'
 import { Icons } from '../components/Icons'
@@ -18,6 +19,8 @@ import { ClinicalHistory } from '../components/ClinicalHistory'
 import { getAllergies, getProblems } from '../api/clinicalHistory'
 import { addVisitAmendment, submitVisitLabOrder } from '../api/visits'
 import { PatientSnapshot } from '../components/PatientSnapshot'
+import { AllergyStatus } from '../components/AllergyStatus'
+import type { AllergyStatusProps } from '../components/AllergyStatus'
 import { UnifiedPatientTimeline } from '../components/UnifiedPatientTimeline'
 import { PatientBrainSidebar } from '../components/PatientBrainSidebar'
 import { PGAssistantDrawer } from '../components/PGAssistantDrawer'
@@ -25,7 +28,7 @@ import { PreparePatientModal } from '../components/PreparePatientModal'
 import { ChangesSinceLastVisitModal } from '../components/ChangesSinceLastVisitModal'
 import { OpenLoopsModal } from '../components/OpenLoopsModal'
 import { MedicationIntelligenceModal } from '../components/MedicationIntelligenceModal'
-import type { LabResult, LabResultInput, VisitResponse, Invoice, VisitAmendment, VisitLabOrderIntent, Patient } from '../types'
+import type { LabResult, LabResultInput, VisitResponse, VisitAmendment, VisitLabOrderIntent, Patient } from '../types'
 
 // ─── Shared style maps ────────────────────────────────────────────────────────
 
@@ -48,6 +51,8 @@ function StickyPatientHeader({
   patientId,
   doctorId,
   allergies,
+  allergiesPending,
+  allergiesError,
   problems,
   onEdit,
   onOpenAssistant,
@@ -57,7 +62,9 @@ function StickyPatientHeader({
   age: number | null
   patientId: number
   doctorId?: number
-  allergies: Array<{ id: number; allergen: string; severity: string; reaction?: string | null }>
+  allergies: AllergyStatusProps['records']
+  allergiesPending: boolean
+  allergiesError: boolean
   problems: Array<{ id: number; title: string; status: string }>
   onEdit?: () => void
   onOpenAssistant: () => void
@@ -133,16 +140,11 @@ function StickyPatientHeader({
             {/* Critical Allergy Alert + Conditions Inline (Section 8) */}
             <div className="flex items-center gap-2.5 mt-1 flex-wrap text-xs">
               {/* Allergy Warning */}
-              {allergies.length > 0 ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-gradient-to-r from-rose-100 via-rose-200/90 to-rose-100 text-rose-900 border border-rose-300 shadow-2xs">
-                  <span>⚠️</span>
-                  <span>ALLERGY: {allergies.map(a => `${a.allergen} (${a.severity})`).join(', ')}</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold gradient-card-emerald text-emerald-900 shadow-2xs">
-                  <span className="text-emerald-700 font-bold">✓</span> No known drug allergies
-                </span>
-              )}
+              <span className={cn('inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold border',
+                !allergiesPending && !allergiesError && allergies?.some(record => record.status === 'Active')
+                  ? 'bg-rose-100 text-rose-900 border-rose-300' : 'bg-amber-50 text-amber-900 border-amber-200')}>
+                <AllergyStatus records={allergies} isPending={allergiesPending} isError={allergiesError} />
+              </span>
 
               {/* Major Active Conditions */}
               {activeProblems.length > 0 && (
@@ -181,17 +183,18 @@ function StickyPatientHeader({
 function PatientOverviewTab({
   patient,
   latestVisit,
-  labs,
-  invoices,
   onNavigateTab
 }: {
   patient: Patient
   latestVisit?: VisitResponse
-  labs?: LabResult[]
-  invoices?: Invoice[]
   onNavigateTab: (tab: string) => void
 }) {
   const rxItems = latestVisit?.prescriptions?.flatMap(p => p.items || []) || []
+  const findings = useRecentLabFindings(patient.id)
+  const report = findings.data
+  const reportDate = report?.reportedAt
+    ? new Date(report.reportedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+    : null
 
   return (
     <div className="space-y-5">
@@ -288,27 +291,34 @@ function PatientOverviewTab({
             onClick={() => onNavigateTab('labs')}
             className="text-xs font-semibold text-emerald-700 hover:underline"
           >
-            View all ({labs?.length || 0}) →
+            View all →
           </button>
         </div>
 
-        {labs && labs.length > 0 ? (
+        {findings.isPending ? (
+          <p role="status" className="text-xs text-slate-500 py-3 text-center">Loading laboratory findings…</p>
+        ) : findings.isError ? (
+          <p role="alert" className="text-xs text-rose-700 py-3 text-center">
+            Could not load the latest laboratory findings.
+            <button type="button" className="ml-2 underline" onClick={() => void findings.refetch()}>Retry</button>
+          </p>
+        ) : report && report.results.length > 0 ? (
           <div className="grid sm:grid-cols-2 gap-2 mt-3 text-xs">
-            {labs.slice(0, 4).map(lab => (
-              <div key={lab.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between">
+            {report.results.slice(0, 4).map((lab, index) => (
+              <div key={index} className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between">
                 <div>
-                  <p className="font-bold text-slate-800">{lab.test_name}</p>
-                  <p className="text-[11px] text-slate-400">{new Date(lab.ordered_date).toLocaleDateString([], { month: 'short', day: 'numeric' })}</p>
+                  <p className="font-bold text-slate-800">{lab.name}</p>
+                  <p className="text-[11px] text-slate-500">{[report.source, reportDate].filter(Boolean).join(' · ')}</p>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-bold text-slate-900">{lab.result_value || 'Pending'}</span>
+                  <span className="text-sm font-bold text-slate-900">{lab.value ?? '—'}</span>
                   <span className="text-[10px] text-slate-400 block">{lab.unit}</span>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-xs text-slate-400 py-3 text-center">No diagnostic test orders recorded.</p>
+          <p className="text-xs text-slate-400 py-3 text-center">No completed laboratory findings.</p>
         )}
       </div>
     </div>
@@ -338,7 +348,7 @@ export default function PatientDetailPage() {
 
   const { data: patient, isLoading: loadingPatient } = usePatient(patientId)
   const { data: visitHistory, isLoading: loadingVisits } = useVisitHistory(patientId, 20)
-  const { data: labResults, isLoading: loadingLabs } = useLatestLabResults(patientId)
+  const { data: labResults } = useLatestLabResults(patientId)
   const { data: invoices, isLoading: loadingInvoices } = useInvoices(patientId)
   const { data: me } = useMe()
   const { data: clinic } = useClinic()
@@ -390,7 +400,7 @@ export default function PatientDetailPage() {
   const previousVisit = visitHistory?.[1]
 
   const handlePrint = (visit: VisitResponse, type: 'report' | 'prescription') => {
-    setPrintVisit({ visit, type })
+    setPrintVisit(current => current ?? { visit, type })
   }
 
   const handleLabSave = async (form: LabResultInput) => {
@@ -407,7 +417,9 @@ export default function PatientDetailPage() {
         age={age}
         patientId={patientId}
         doctorId={me?.id}
-        allergies={allergiesQuery.data || []}
+        allergies={allergiesQuery.data}
+        allergiesPending={allergiesQuery.isPending}
+        allergiesError={allergiesQuery.isError}
         problems={problemsQuery.data || []}
         onEdit={() => setEditingPatient(true)}
         onOpenAssistant={() => {
@@ -463,8 +475,6 @@ export default function PatientDetailPage() {
             <PatientOverviewTab
               patient={patient}
               latestVisit={latestVisit}
-              labs={labResults}
-              invoices={invoices}
               onNavigateTab={(t) => setActiveTab(t as ActiveTab)}
             />
           )}
@@ -497,6 +507,7 @@ export default function PatientDetailPage() {
                   Order Laboratory Tests
                 </Link>
               </div>
+              <LinkedLabReports patientId={patientId} />
               {labResults && labResults.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left">
@@ -544,7 +555,7 @@ export default function PatientDetailPage() {
                   </table>
                 </div>
               ) : (
-                <p className="text-xs text-slate-400 py-6 text-center">No laboratory results documented.</p>
+                <p className="text-xs text-slate-400 py-6 text-center">No laboratory results recorded in EMR.</p>
               )}
             </div>
           )}
@@ -701,7 +712,7 @@ export default function PatientDetailPage() {
           clinic={clinic}
           doctor={me}
           type={printVisit.type}
-          onReady={() => window.print()}
+          onAfterPrint={() => setPrintVisit(null)}
         />
       )}
     </div>

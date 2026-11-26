@@ -43,10 +43,12 @@ function Avatar({ name }: { name: string }) {
 function Field({ label, children, required, col2 }: { label: string; children: ReactNode; required?: boolean; col2?: boolean }) {
   return (
     <div className={col2 ? 'col-span-2' : ''}>
-      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-        {label} {required && <span className="text-red-400">*</span>}
+      <label className="block">
+        <span className="block text-xs font-semibold text-slate-600 mb-1.5">
+          {label} {required && <span className="text-red-400">*</span>}
+        </span>
+        {children}
       </label>
-      {children}
     </div>
   )
 }
@@ -55,7 +57,9 @@ const inputCls = 'w-full border border-border rounded-md px-3.5 py-2.5 text-sm t
 
 export default function PatientsPage() {
   const { t } = useTranslation()
-  const { data: me } = useMe()
+  const { data: me, isPending: permissionsPending } = useMe()
+  const canViewPatients = can(me, 'view_patients')
+  const canCreatePatients = canViewPatients && can(me, 'manage_patients')
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.get('search') || ''
   const setSearch = (value: string) => setSearchParams(value ? { search: value } : {}, { replace: true })
@@ -78,7 +82,7 @@ export default function PatientsPage() {
     return () => clearTimeout(t)
   }, [search])
 
-  const { data: patients, isLoading, isError, refetch } = usePatients(debouncedSearch || undefined)
+  const { data: patients, isLoading, isError, refetch } = usePatients(debouncedSearch || undefined, { enabled: canViewPatients })
   const create = useCreatePatient()
   const remove = useDeletePatient()
 
@@ -91,6 +95,7 @@ export default function PatientsPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (!canCreatePatients) return
 
     // Validations
     if (form.dob) {
@@ -121,6 +126,9 @@ export default function PatientsPage() {
     }
   }
 
+  if (permissionsPending) return <p role="status" className="p-6">Loading your permissions…</p>
+  if (!canViewPatients) return <div role="alert" className="p-6">You do not have permission to view patients.</div>
+
   return (
     <div className="workspace-page">
       {/* Page header */}
@@ -130,7 +138,7 @@ export default function PatientsPage() {
           <h1 className="workspace-heading">{t('patients.title')}</h1>
           <p className="text-sm text-slate-500 mt-1 text-pretty">Find a patient, review their chart, and continue their care.</p>
         </div>
-        {can(me, 'manage_patients') && <button
+        {canCreatePatients && <button
           onClick={() => setShowForm(true)}
           className="btn btn-primary px-4 py-2.5 shadow-sm shadow-emerald-700/20"
         >
@@ -266,7 +274,7 @@ export default function PatientsPage() {
       </div>
 
       {/* Add Patient Modal */}
-      {showForm && (
+      {showForm && canCreatePatients && (
         <div className="modal-overlay">
           <div className="modal-container max-w-2xl">
             <div className="modal-header">
@@ -274,7 +282,7 @@ export default function PatientsPage() {
                 <h2 className="text-base font-bold text-slate-900">{t('patients.modalTitle')}</h2>
                 <p className="text-xs text-slate-400 mt-0.5">{t('patients.modalSubtitle')}</p>
               </div>
-              <button onClick={() => setShowForm(false)} className="btn-icon">
+              <button type="button" aria-label="Close new patient form" onClick={() => setShowForm(false)} className="btn-icon">
                 {Icons.x}
               </button>
             </div>

@@ -36,6 +36,15 @@ export const getLabQueue = (status?: string): Promise<LabQueueResponseItem[]> =>
 export const getLabResults = (patientId: number): Promise<LabResult[]> =>
   api.get<LabResult[]>(`/patients/${patientId}/lab_results`).then((r) => r.data)
 
+export interface RecentLabFindings {
+  source: 'LIS' | 'EMR' | null
+  reportedAt: string | null
+  results: { name: string; value: string | number | null; unit: string | null }[]
+}
+
+export const getRecentLabFindings = (patientId: number, signal: AbortSignal): Promise<RecentLabFindings> =>
+  api.get<RecentLabFindings>(`/patients/${patientId}/lab_results/recent_findings`, { signal }).then((r) => r.data)
+
 export const getLabResultsHistory = (patientId: number, testName?: string, limit = 6): Promise<LabResult[]> =>
   api
     .get<LabResult[]>(`/patients/${patientId}/lab_results/history`, { params: { test_name: testName, limit } })

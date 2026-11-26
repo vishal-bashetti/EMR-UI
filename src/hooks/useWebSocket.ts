@@ -14,10 +14,11 @@ export function useWebSocket() {
     // Reconstruct the ws url from the current window location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
-    const wsUrl = `${protocol}//${host}/api/ws/messages?token=${accessToken}`
+    const wsUrl = `${protocol}//${host}/api/ws/messages`
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 
     const connect = () => {
-      const ws = new WebSocket(wsUrl)
+      const ws = new WebSocket(wsUrl, ['emr-auth', accessToken])
       
       ws.onopen = () => {
         console.log('WS Connected')
@@ -39,7 +40,7 @@ export function useWebSocket() {
 
       ws.onclose = () => {
         console.log('WS Disconnected. Reconnecting in 3s...')
-        setTimeout(connect, 3000)
+        reconnectTimer = setTimeout(connect, 3000)
       }
 
       wsRef.current = ws
@@ -48,6 +49,7 @@ export function useWebSocket() {
     connect()
 
     return () => {
+      clearTimeout(reconnectTimer)
       if (wsRef.current) {
         wsRef.current.onclose = null // Prevent reconnect loop on unmount
         wsRef.current.close()
